@@ -22,6 +22,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   const first = page.locator('.graph').first();
   const second = page.locator('.graph').nth(1);
   await expect(second.locator('.selection-count')).toHaveText('0 selected');
+  await expect(second.locator('.sensor-dropdown')).not.toBeVisible();
+  await second.locator('summary').click();
   await expect(second.getByRole('group', {name: 'Demo Motion & Force 1', exact: true})).toBeVisible();
   await expect(second.getByRole('group', {name: 'Demo Motion & Force 2', exact: true})).toBeVisible();
   await expect(second.locator('[data-series="demo-1/3"]')).toBeDisabled();
@@ -33,6 +35,7 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect(page.locator('#status')).toHaveText('Recording');
   await expect(page.locator('#scan')).toBeDisabled();
   await expect.poll(async () => Number((await page.locator('#samples').innerText()).replaceAll(',', ''))).toBeGreaterThan(30);
+  await second.locator('summary').click();
   await second.locator('[data-series="demo-1/2"]').uncheck();
   await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.length)).toBe(1);
   await expect(first.locator('[data-series="demo-1/2"]')).toBeChecked();
@@ -62,6 +65,21 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   let csv = ''; for await (const chunk of stream) csv += chunk;
   expect(csv).toContain('Acceleration X,m/s²');
   expect(csv).toContain('Force,N');
+  // A graph export includes exactly its sensors and all samples outside zoom.
+  await second.locator('.plot').evaluate(el => window.Plotly.relayout(el, {'xaxis.range': [.1, .2]}));
+  const graphDownloadPromise = page.waitForEvent('download');
+  await second.getByRole('button', {name: 'Download CSV'}).click();
+  const graphDownload = await graphDownloadPromise;
+  expect(graphDownload.suggestedFilename()).toBe('Graph 2-DEMO.csv');
+  let graphCSV = '';
+  for await (const chunk of await graphDownload.createReadStream()) graphCSV += chunk;
+  const rows = graphCSV.trim().split(/\r?\n/).slice(1).map(row => row.split(','));
+  expect([...new Set(rows.map(row => `${row[3]}/${row[4]}`))].sort()).toEqual([
+    'demo-1/Acceleration X', 'demo-2/Force',
+  ]);
+  const recorded = await (await page.request.get('/api/state')).json();
+  expect(rows).toHaveLength(recorded.points.filter(p => ['demo-1/2', 'demo-2/1'].includes(p.series)).length);
+  expect(Math.max(...rows.map(row => Number(row[1])))).toBeGreaterThan(.2);
   const samples = await page.locator('#samples').innerText();
   await page.reload();
   await expect(page.locator('#samples')).toHaveText(samples);
@@ -75,11 +93,34 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect(page.locator('#device-count')).toHaveText('2');
   await page.locator('[data-device="demo-2"] [data-device-action="disconnect"]').click();
   await expect(page.locator('#device-count')).toHaveText('1');
+  await expect(second.getByRole('button', {name: 'Download CSV'})).toBeDisabled();
   await page.setViewportSize({width: 390, height: 844});
   await expect.poll(() => page.locator('.plot').first().evaluate(el => el._fullLayout.width)).toBeLessThan(390);
   await page.screenshot({path: 'test-results/workspace-mobile.png', fullPage: true});
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('graph names stay consistent after delete, rename and reload', async ({page}) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.setItem('vernier-layout', JSON.stringify({graphs: [{title: 'Graph 2', auto: false, selected: []}]})));
+  await page.reload();
+  await expect(page.getByRole('textbox', {name: 'Graph title'})).toHaveValue('Graph 1');
+  await expect(page.locator('.graph-number')).toHaveCount(0);
+  await page.getByRole('button', {name: '+ Add graph'}).click();
+  await page.getByRole('button', {name: '+ Add graph'}).click();
+  await page.getByRole('button', {name: 'Remove graph'}).first().click();
+  await expect(page.getByRole('textbox', {name: 'Graph title'}).nth(0)).toHaveValue('Graph 1');
+  await expect(page.getByRole('textbox', {name: 'Graph title'}).nth(1)).toHaveValue('Graph 2');
+  await page.getByRole('textbox', {name: 'Graph title'}).first().fill('Motion comparison');
+  await page.getByRole('textbox', {name: 'Graph title'}).first().press('Tab');
+  await page.reload();
+  await expect(page.getByRole('textbox', {name: 'Graph title'}).first()).toHaveValue('Motion comparison');
+  await expect(page.getByRole('textbox', {name: 'Graph title'}).nth(1)).toHaveValue('Graph 2');
+  await page.locator('.graph').first().locator('summary').click();
+  await expect(page.locator('.sensor-dropdown').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sensor-dropdown').first()).not.toBeVisible();
 });
 
 test('scan failures are visible and do not invent devices', async ({page}) => {

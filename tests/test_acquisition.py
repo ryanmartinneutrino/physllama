@@ -182,3 +182,19 @@ def test_sdk_packet_compatibility():
     finally:
         loop.close()
         asyncio.set_event_loop(None)
+
+
+def test_desktop_quit_stops_acquisition_and_requests_graceful_shutdown():
+    shutdown = []
+    with TestClient(create_app(on_shutdown=lambda: shutdown.append(True))) as client:
+        assert client.get('/api/app').json() == {'name': 'Vernier Lab', 'desktop': True}
+        setup_demo(client)
+        assert client.post('/api/start').status_code == 200
+        assert client.post('/api/quit').json() == {'quitting': True}
+        assert shutdown == [True]
+        assert not client.get('/api/state').json()['recording']
+
+
+def test_terminal_server_cannot_be_quit_from_the_browser(client):
+    assert client.get('/api/app').json()['desktop'] is False
+    assert client.post('/api/quit').status_code == 400

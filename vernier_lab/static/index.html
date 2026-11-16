@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#117d70">
+  <meta name="theme-color" content="#d4eaff">
   <title>Vernier Lab · Explore your experiment</title>
   <link rel="icon" href="/static/mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
@@ -13,7 +13,7 @@
 <body>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Vernier Lab home"><img src="/static/mark.svg" alt="" width="35" height="35"><span>vernier<span class="brand-light">lab</span></span><span class="beta">WORKSPACE</span></a>
-    <div class="top-right"><span class="local-indicator"><i></i> Local session</span><button id="help-button" class="button quiet">Quick guide <span aria-hidden="true">↗</span></button></div>
+    <div class="top-right"><span class="local-indicator"><i></i> Local session</span><button id="help-button" class="button quiet">Quick guide <span aria-hidden="true">↗</span></button><button id="quit-button" class="button quiet" hidden>Quit app</button></div>
   </header>
   <div class="workspace">
     <aside class="sidebar">
@@ -40,7 +40,8 @@
       <footer><span><i class="footer-dot"></i> Built for hands-on science</span><span>Scroll to zoom · drag to inspect · double-click to fit</span></footer>
     </main>
   </div>
-  <dialog id="help-dialog"><div class="dialog-heading"><h2>A quick start</h2><button class="button square" data-close="help-dialog" aria-label="Close guide">×</button></div><ol class="guide"><li><strong>Connect your sensor</strong><p>Turn on a Go Direct sensor. Search, then connect. Close Graphical Analysis or other apps connected to it.</p></li><li><strong>Choose what to measure</strong><p>Check the channels to record and set the sampling interval in milliseconds. Smaller intervals collect more often.</p></li><li><strong>Make it visible</strong><p>Start collection. Use each graph’s “Sensors to plot” checklist to overlay channels from one or more devices. Different units get separate labeled axes. Add graphs to compare views.</p></li><li><strong>Explore and keep your data</strong><p>Stop, zoom, and hover for values. Export downloads all samples from the series shown on your graphs, including samples outside the zoomed view.</p></li></ol><div class="guide-note">Units come from the sensor; no extra calibration or zero offset is applied. Time is reconstructed from the requested interval and each device’s host start time; devices are not hardware synchronized. Each Start creates a new run.<br><br>Data lives in server memory. Refreshing this page keeps it; stopping the app or resetting clears it. Export before closing the app. Demo data is clearly labeled and cannot be mixed with real measurements.</div></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><h2>A quick start</h2><button class="button square" data-close="help-dialog" aria-label="Close guide">×</button></div><ol class="guide"><li><strong>Connect your sensor</strong><p>Turn on a Go Direct sensor. Search, then connect. Close Graphical Analysis or other apps connected to it.</p></li><li><strong>Choose what to measure</strong><p>Check the channels to record and set the sampling interval in milliseconds. Smaller intervals collect more often.</p></li><li><strong>Make it visible</strong><p>Start collection. Use each graph’s “Sensors” dropdown to overlay channels from one or more devices. Different units get separate labeled axes. Add graphs to compare views.</p></li><li><strong>Explore and keep your data</strong><p>Stop, zoom, and hover for values. Each graph’s Download CSV button exports all samples for that graph’s selected sensors, including samples outside the zoomed view. Export CSV at the top exports the series shown across all graphs.</p></li></ol><div class="guide-note">Units come from the sensor; no extra calibration or zero offset is applied. Time is reconstructed from the requested interval and each device’s host start time; devices are not hardware synchronized. Each Start creates a new run.<br><br>Data lives in server memory. Refreshing this page keeps it; stopping the app or resetting clears it. Export before closing the app. Demo data is clearly labeled and cannot be mixed with real measurements.</div></dialog>
   <dialog id="reset-dialog"><h2>Clear this experiment’s data?</h2><p>All recorded runs will be removed. Your devices and graph layout will stay connected. Export first if you want to keep the measurements.</p><div class="dialog-actions"><button class="button" data-close="reset-dialog">Keep data</button><button id="confirm-reset" class="button danger">Clear data</button></div></dialog>
+  <dialog id="quit-dialog"><h2>Quit Vernier Lab?</h2><p>Export your data first. Quitting stops collection, disconnects your devices, and clears this session’s measurements.</p><div class="dialog-actions"><button class="button" data-close="quit-dialog">Keep working</button><button id="confirm-quit" class="button danger">Quit app</button></div></dialog>
 </body>
 </html>

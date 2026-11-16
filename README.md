@@ -2,6 +2,38 @@
 
 A local web app for recording and exploring Vernier Go Direct Bluetooth sensors. Run it on the computer with the Bluetooth adapter; the browser is the interface, and a Python service talks to the sensors. No cloud account or Web Bluetooth browser support is needed.
 
+## Standalone installers (Windows and Mac)
+
+Download the installer for your computer from the private [v0.2.0 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.0). Sign into the GitHub account with access to this repository.
+
+| Computer | Download |
+| --- | --- |
+| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.0-windows-x64-setup.exe` |
+| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.0-macos-arm64-installer.zip` |
+| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.0-macos-x64-installer.zip` |
+
+These are **offline, self-contained packages**: Python, platform-specific dependencies, the app, and graphing assets are included. Students do not need Python, Node, Git, a terminal command, or an internet connection to run the installed app. The Mac install script opens Terminal to confirm installation; app launches after installation use the browser directly.
+
+**Release status:** unsigned preview installers, assembled on Linux from verified native runtimes and wheels. Their contents and application behavior are checked here, but installation, launch, Bluetooth permissions, and real-sensor acquisition still need testing on Windows and macOS. They are not signed or notarized; operating systems may display an unknown-publisher warning or block them. Distribute to a class only after testing the relevant target OS. A `.sha256` file accompanies each installer.
+
+### Windows
+
+1. Run the setup `.exe`. It installs for the current user without administrator privileges.
+2. Open **Vernier Lab** from the Start menu or desktop shortcut. It opens the local app in your default browser.
+3. Enable Bluetooth in Windows Settings, turn on the sensor, and search/connect in the app.
+4. Export before closing. Choose **Quit app** in the app's header to stop the service and release Bluetooth. Closing a browser tab alone keeps the session running. Reopening the shortcut brings back that session.
+
+Uninstall through **Settings → Apps → Installed apps → Vernier Lab**, or `Uninstall.exe` in `%LOCALAPPDATA%\Programs\Vernier Lab`. Quit the app before upgrading or uninstalling. Runtime diagnostics are in `%LOCALAPPDATA%\Vernier Lab\Logs\app.log`.
+
+### macOS
+
+1. Select the ZIP for your processor and extract it with Archive Utility.
+2. Double-click **Install Vernier Lab.command**, then type `y` and Return. The included installer copies **Vernier Lab.app** into `~/Applications`. Alternatively, drag the included `.app` to that folder yourself.
+3. Open **Vernier Lab** from Applications in your home folder. Allow Bluetooth access when prompted; it can also be managed in **System Settings → Privacy & Security → Bluetooth**.
+4. Export your measurements, then use **Quit app** in the browser header when finished. Closing the browser tab keeps the session alive.
+
+The installer never replaces an existing app silently. To update, quit Vernier Lab, move the previous `.app` to Trash, and run the new installer. To uninstall, quit and move the `.app` to Trash. Logs are in `~/Library/Logs/Vernier Lab/app.log`.
+
 ## Run on your Linux laptop
 
 Requires Python 3.10+ and a working Bluetooth Low Energy adapter. On Ubuntu/Debian, install prerequisites if needed:
@@ -36,9 +68,10 @@ If scanning fails, check `bluetoothctl show` and `rfkill list`. “No default co
 - Connect one or more discovered Go Direct devices. Each device has its own channel selection and disconnect control.
 - Select channels to **record**, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
 - **Start collection** starts a new run. **Stop** keeps the data. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
-- Each graph has a visible **Sensors to plot** checklist, grouped by device, independent of what is recorded. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. Channels without recorded data must first be enabled for recording in **Devices**. Different units use separate labeled axes; series with the same units share an axis.
+- Each graph has a **Sensors** dropdown with checkboxes grouped by device, independent of what is recorded. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. Channels without recorded data must first be enabled for recording in **Devices**. Different units use separate labeled axes; series with the same units share an axis.
+- Graphs have a single editable title. Automatic titles renumber after deletion; custom titles survive deletion of other graphs and page reloads.
 - Scroll to zoom, drag a zoom rectangle, or select pan in the Plotly toolbar. Hover for the sensor, value, units, time, and run. Zooming switches off **Follow live**. **Fit view** resets the axes; check **Follow live** to keep fitting new samples.
-- **Export CSV** downloads every recorded sample from the series selected on any graph, including samples outside the zoomed view. To export every channel, select every recorded series on a graph. The Plotly camera button exports a graph as an image.
+- **Download CSV** on a graph exports only that graph’s checked sensors, including their full recorded history regardless of zoom or display reduction. Its filename includes the graph title. **Export CSV** at the top exports the combined selection across all graphs. The Plotly camera button exports a graph as an image.
 - **Reset** asks before removing all collected runs. It preserves device connections and the graph layout.
 - The battery reading comes from the device when connected. Click its **refresh** label while stopped to update it. No battery percentage is invented for demo devices or devices with an unavailable reading.
 
@@ -88,24 +121,50 @@ npm run test:ui
 If Chromium is already installed in a nonstandard location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its executable. Browser tests start an isolated service on port 8766. `npm run vendor` updates the tracked Plotly asset from the pinned package.
 
 ```text
+desktop.py                   Bundled desktop entry point and graceful shutdown
 run.py                       Local launcher; loopback only
 start.sh                     Linux/macOS virtualenv setup and launch
 vernier_lab/server.py        HTTP API and static asset serving
 vernier_lab/acquisition.py   Serialized Bluetooth worker and session store
 vernier_lab/hardware.py      Vernier/Bleak adapter and explicit demo device
 vernier_lab/static/          HTML, CSS, JavaScript, and bundled Plotly
-tests/                      Backend and browser tests
+packaging/                   Runtime checksums, dependency locks, installer templates
+scripts/build_installers.py  Offline Windows/Mac installer assembly
+tests/                       Backend and browser tests
 ```
 
 The SDK calls and BLE event loop live on one worker thread. Requests and acquisition are serialized there, avoiding cross-thread Bluetooth access. The browser polls bounded incremental batches and can rebuild its state after a reload. The service binds only to `127.0.0.1` and rejects foreign hosts/origins. Multiple tabs share one experiment; this is a single-user desktop service.
 
 The adapter includes focused compatibility fixes for godirect 1.2.1: BLE notification reassembly, full 32-bit channel masks, correct single-channel routing, and explicit dropped-sample handling. Metadata packets are skipped, including during command responses. Hardware validation is still required on the target sensor.
 
-## Future desktop packaging
+## Rebuilding standalone installers
 
-The local service, transport adapter, and UI are separate so the same app can later be bundled using PyInstaller, optionally inside a pywebview window. Package the Python runtime and `vernier_lab/static/` together and route graceful app shutdown through `Lab.shutdown()`. Windows/macOS builds need to be produced and Bluetooth-tested on those operating systems; macOS also needs the appropriate Bluetooth permission description and signing. No installer or native release is claimed by this initial version.
+The builder assembles target-native packages without compiling foreign binaries. It downloads the pinned Astral standalone Python 3.12 runtime, verifies its SHA-256, and installs only target-native wheels from hashed per-platform lock files. The same Python source and local browser assets are included on every platform. Every bundle includes its source commit and file hashes in `BUILD-MANIFEST.json`, the Python library sources, and third-party notices.
 
-For a manual macOS/Windows development run, create a virtualenv, install `requirements.txt`, and run `python run.py` with that environment. The current automated and UI validation was performed on Linux.
+Install the builder dependency and NSIS (NSIS is required only for Windows setup output):
+
+```bash
+.venv/bin/python -m pip install -r requirements-build.txt
+# Ubuntu/Debian build host, Windows setup compiler:
+sudo apt install nsis
+.venv/bin/python scripts/build_installers.py --target all
+```
+
+Individual targets are `windows-x64`, `macos-arm64`, and `macos-x64`. `--uv` and `--makensis` can supply explicit executable paths. On Windows use the virtualenv's `Scripts/python.exe`, or any Python 3.10+ with the build dependency installed. This process needs internet while building; the resulting installers do not.
+
+Commit source changes before building; the builder requires a clean checkout so its manifest identifies the exact source revision. Outputs are written to ignored `dist/`. The Mac ZIPs contain the offline installer, README, and a `.app` with Bluetooth usage descriptions. The Windows NSIS executable installs shortcuts and a per-user uninstaller. No GitHub Actions workflows or hosted build services are used. Upload artifacts to a private GitHub release after validation; do not commit bundled runtimes into Git.
+
+Run `.venv/bin/python scripts/verify_installers.py` after building (requires `7z`) to verify the installer checksums, every payload file against the build manifest, Mac executable permissions and Bluetooth metadata, and native Python executable formats. These integrity checks do not replace installation and Bluetooth tests on the target OS.
+
+To regenerate dependency locks after deliberately updating `requirements.txt`:
+
+```bash
+.venv/bin/uv pip compile --python-version 3.12 --python-platform x86_64-pc-windows-msvc --generate-hashes -o packaging/requirements-windows-x64.lock.txt requirements.txt
+.venv/bin/uv pip compile --python-version 3.12 --python-platform aarch64-apple-darwin --generate-hashes -o packaging/requirements-macos-arm64.lock.txt requirements.txt
+.venv/bin/uv pip compile --python-version 3.12 --python-platform x86_64-apple-darwin --generate-hashes -o packaging/requirements-macos-x64.lock.txt requirements.txt
+```
+
+For a classroom release, test both CPU variants on Macs and the Windows installer on a clean Windows machine without Python. Confirm launch, Bluetooth permission, acquisition, graph-specific CSV, Quit, reopening, and uninstall. Code signing/notarization requires platform signing credentials and a macOS signing host; neither is included in this preview build.
 
 ## Upstream references
 

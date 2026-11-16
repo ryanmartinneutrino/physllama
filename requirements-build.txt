@@ -1,0 +1,2 @@
+# Cross-platform wheel resolution; no compilation of foreign native extensions.
+uv==0.13.8

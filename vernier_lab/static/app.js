@@ -1,15 +1,15 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const colors = ['#168878', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6bb2b9', '#c76e76'];
+const colors = ['#1e5480', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6596bf', '#c76e76'];
 const points = new Map();
 let state = {devices: [], series: [], recording: false, total_points: 0, period_ms: 50};
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
-let lastError = '', graphCounter = 0;
+let lastError = '', graphCounter = 0, quitting = false;
 let graphs = [];
 
 function saveLayout() {
   try { localStorage.setItem('vernier-layout', JSON.stringify({title: $('#experiment-title').value,
-    graphs: graphs.map(({title, selected, auto, follow}) => ({title, selected, auto, follow}))})); } catch { /* Storage can be disabled. */ }
+    graphs: graphs.map(({title, customTitle, selected, auto, follow}) => ({title, customTitle, selected, auto, follow}))})); } catch { /* Storage can be disabled. */ }
 }
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
 async function request(path, body) {
@@ -109,6 +109,9 @@ function renderControls() {
   $('#reset').disabled = busy || offline || state.recording || !state.total_points;
   for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || offline || state.recording;
   $('#export').disabled = busy || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
+  for (const graph of graphs) {
+    $('.graph-export', graph.node).disabled = busy || offline || !state.series.some(s => graph.selected.includes(s.id));
+  }
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
   $('#samples').textContent = (state.total_points || 0).toLocaleString();
   $('#channels').textContent = channels;
@@ -149,11 +152,12 @@ $('#devices').addEventListener('change', event => {
 });
 
 function addGraph(saved = {}) {
-  const graph = {id: ++graphCounter, title: saved.title || `Graph ${graphCounter}`, selected: saved.selected || [],
+  const customTitle = saved.customTitle ?? Boolean(saved.title && !/^Graph \d+$/.test(saved.title));
+  const graph = {id: ++graphCounter, title: customTitle ? saved.title : `Graph ${graphs.length + 1}`, customTitle, selected: saved.selected || [],
     auto: saved.auto ?? true, follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
   if (graph.auto) graph.selected = availableChannels().map(s => s.id);
   const node = document.createElement('article'); node.className = 'graph';
-  node.innerHTML = `<div class="graph-header"><div class="graph-title"><span class="graph-number">${String(graph.id).padStart(2, '0')}</span><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><section class="graph-sensors" aria-label="Sensors to plot"><div class="graph-sensors-heading"><h3>Sensors to plot</h3><span class="selection-count"></span></div><p>Check sensors to overlay on this graph, including sensors from different devices.</p><div class="series-options"></div></section><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
+  node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
@@ -161,14 +165,24 @@ function addGraph(saved = {}) {
     if (plot._fullLayout) Plotly.Plots.resize(plot).catch(() => {});
   });
   graph.resizeObserver.observe(node);
-  $('input[aria-label="Graph title"]', node).addEventListener('change', e => { graph.title = e.target.value; saveLayout(); });
+  $('input[aria-label="Graph title"]', node).addEventListener('change', e => {
+    graph.customTitle = Boolean(e.target.value.trim());
+    graph.title = e.target.value.trim();
+    renumberGraphs(); saveLayout();
+  });
+  $('.graph-export', node).addEventListener('click', () => downloadCSV(graph.selected, graph.title));
+  $('.graph-sensors', node).addEventListener('toggle', event => {
+    if (event.target.open) for (const other of graphs) {
+      if (other !== graph) $('.graph-sensors', other.node).open = false;
+    }
+  });
   $('.follow input', node).addEventListener('change', e => { graph.follow = e.target.checked; graph.fit++; graph.dirty = true; drawGraph(graph); saveLayout(); });
   $('.fit', node).addEventListener('click', () => { graph.fit++; graph.dirty = true; drawGraph(graph); });
   $('.remove', node).addEventListener('click', () => {
     if (graphs.length === 1) return showNotice('Keep at least one graph in your workspace.');
     graph.resizeObserver.disconnect();
     Plotly.purge($('.plot', node)); node.remove(); graphs = graphs.filter(g => g !== graph);
-    $('#graph-count').textContent = graphs.length; saveLayout(); renderControls();
+    renumberGraphs(); saveLayout(); renderControls();
   });
   $('.series-options', node).addEventListener('change', e => {
     const id = e.target.dataset.series;
@@ -182,6 +196,26 @@ function addGraph(saved = {}) {
   $('#graph-count').textContent = graphs.length;
   return graph;
 }
+function renumberGraphs() {
+  graphs.forEach((graph, index) => {
+    if (!graph.customTitle) graph.title = `Graph ${index + 1}`;
+    $('input[aria-label="Graph title"]', graph.node).value = graph.title;
+  });
+  $('#graph-count').textContent = graphs.length;
+}
+document.addEventListener('click', event => {
+  for (const graph of graphs) {
+    const picker = $('.graph-sensors', graph.node);
+    if (!picker.contains(event.target)) picker.open = false;
+  }
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  for (const graph of graphs) {
+    const picker = $('.graph-sensors', graph.node);
+    if (picker.open) { picker.open = false; $('summary', picker).focus(); }
+  }
+});
 function renderSeriesPicker(graph) {
   const groups = new Map();
   for (const channel of graphChannelOptions()) {
@@ -232,12 +266,12 @@ async function drawGraph(graph) {
       line: {color: colorFor(s.id), width: 2}, yaxis: unitIndex ? `y${unitIndex + 1}` : 'y', connectgaps: false,
       hovertemplate: `${esc(s.name)}: <b>%{y:.4g} ${esc(s.unit)}</b><br>%{x:.4f} s · run %{customdata}<extra>${esc(s.device)}</extra>`};
   });
-  const axis = {gridcolor: '#eef2ef', zerolinecolor: '#dce5de', tickfont: {size: 10, color: '#91a197'},
-    title: {font: {size: 11, color: '#82988b'}, standoff: 10}, showline: false, automargin: true};
-  const layout = {autosize: true, paper_bgcolor: 'white', plot_bgcolor: 'white', font: {family: 'Inter, Segoe UI, sans-serif', color: '#476356'},
+  const axis = {gridcolor: '#eef0f2', zerolinecolor: '#dbe1e6', tickfont: {size: 10, color: '#909aa2'},
+    title: {font: {size: 11, color: '#808e9a'}, standoff: 10}, showline: false, automargin: true};
+  const layout = {autosize: true, paper_bgcolor: 'white', plot_bgcolor: 'white', font: {family: 'Inter, Segoe UI, sans-serif', color: '#455765'},
     margin: {l: 60, r: Math.max(25, (units.length - 1) * 65), t: 28, b: 48},
     showlegend: false, hovermode: 'x unified', dragmode: 'zoom', uirevision: `${generation}-${graph.fit}`,
-    datarevision: revision, hoverlabel: {bgcolor: '#fff', bordercolor: '#dbe8df', font: {size: 11}},
+    datarevision: revision, hoverlabel: {bgcolor: '#fff', bordercolor: '#dae2e9', font: {size: 11}},
     xaxis: {...axis, title: {...axis.title, text: 'Time (s)'}, autorange: graph.follow ? true : undefined},
     yaxis: {...axis, title: {...axis.title, text: units[0] || 'Value'}},
   };
@@ -250,8 +284,8 @@ async function drawGraph(graph) {
     layout.xaxis.range = [0, 10]; layout.xaxis.autorange = false;
     layout.yaxis.range = [-5, 5];
     layout.annotations = [{xref: 'paper', yref: 'paper', x: .5, y: .56, showarrow: false,
-      text: `<b>${channels.length ? 'Your experiment is ready' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#95a69b">${channels.length ? 'Start collection to see your measurements here.' : 'Use the checklist above to start plotting.'}</span>`,
-      font: {size: 15, color: '#728d7c'}, bgcolor: 'rgba(255,255,255,.94)', borderpad: 15}];
+      text: `<b>${channels.length ? 'Your experiment is ready' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#949ea7">${channels.length ? 'Start collection to see your measurements here.' : 'Open the Sensors dropdown to start plotting.'}</span>`,
+      font: {size: 15, color: '#70818f'}, bgcolor: 'rgba(255,255,255,.94)', borderpad: 15}];
   }
   try {
     await Plotly.react(plot, traces, layout, {responsive: true, displaylogo: false, scrollZoom: true,
@@ -286,8 +320,8 @@ $('[data-close="help-dialog"]').addEventListener('click', () => $('#help-dialog'
 $('[data-close="reset-dialog"]').addEventListener('click', () => $('#reset-dialog').close());
 $('#add-graph').addEventListener('click', () => { addGraph({auto: false}); saveLayout(); renderControls(); });
 $('#experiment-title').addEventListener('change', saveLayout);
-$('#export').addEventListener('click', async () => {
-  const ids = [...new Set(graphs.flatMap(g => g.selected))].filter(id => state.series.some(s => s.id === id));
+async function downloadCSV(selected, title) {
+  const ids = [...new Set(selected)].filter(id => state.series.some(s => s.id === id));
   if (!ids.length) return showNotice('Choose a recorded series on a graph before exporting.');
   try {
     const query = new URLSearchParams(ids.map(id => ['series', id]));
@@ -295,17 +329,21 @@ $('#export').addEventListener('click', async () => {
     if (!response.ok) throw new Error('Export failed. Check the local server and try again.');
     const url = URL.createObjectURL(await response.blob());
     const anchor = document.createElement('a'); anchor.href = url;
-    anchor.download = `${$('#experiment-title').value.replace(/[^a-z0-9 _-]/gi, '').trim() || 'experiment'}${state.series.some(s => s.demo) ? '-DEMO' : ''}.csv`;
+    anchor.download = `${title.replace(/[^a-z0-9 _-]/gi, '').trim() || 'experiment'}${state.series.some(s => ids.includes(s.id) && s.demo) ? '-DEMO' : ''}.csv`;
     anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) { showNotice(error.message); }
-});
+}
+$('#export').addEventListener('click', () => downloadCSV(graphs.flatMap(g => g.selected), $('#experiment-title').value));
 async function poll() {
+  if (quitting) return;
   if (!busy) {
     try {
       const next = await request(`state?after=${cursor}&generation=${encodeURIComponent(generation)}`);
+      if (quitting) return;
       if (offline) { offline = false; showNotice('Reconnected to the local server.'); }
       applyState(next, true);
     } catch {
+      if (quitting) return;
       offline = true; renderControls(); renderDevices();
       showNotice('The local server is unavailable. Keep this page open and restart the app to reconnect.');
     }
@@ -318,4 +356,18 @@ try {
   if (saved?.graphs?.length) saved.graphs.slice(0, 12).forEach(addGraph);
 } catch { /* Start a clean layout if local preferences are unavailable. */ }
 if (!graphs.length) addGraph();
+request('app').then(info => { $('#quit-button').hidden = !info.desktop; }).catch(() => {});
+$('#quit-button').addEventListener('click', () => $('#quit-dialog').showModal());
+$('[data-close="quit-dialog"]').addEventListener('click', () => $('#quit-dialog').close());
+$('#confirm-quit').addEventListener('click', async () => {
+  $('#quit-dialog').close();
+  quitting = true;
+  try {
+    await request('quit', {});
+    offline = true; renderControls(); renderDevices();
+    $('#status').textContent = 'App closed';
+    $('#quit-button').disabled = true;
+    showNotice('Vernier Lab has closed. You can close this tab.');
+  } catch (error) { quitting = false; showNotice(error.message); poll(); }
+});
 poll();

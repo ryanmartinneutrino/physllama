@@ -22,7 +22,7 @@ class Configuration(BaseModel):
     period_ms: float = Field(ge=10, le=10000, allow_inf_nan=False)
 
 
-def create_app(lab=None):
+def create_app(lab=None, on_shutdown=None):
     lab = lab or Lab()
 
     @asynccontextmanager
@@ -58,6 +58,18 @@ def create_app(lab=None):
     @app.get('/api/state')
     async def state(after: int = Query(default=0, ge=0), generation: str = ''):
         return await execute('snapshot', after=after, generation=generation)
+
+    @app.get('/api/app')
+    async def app_info():
+        return {'name': 'Vernier Lab', 'desktop': on_shutdown is not None}
+
+    @app.post('/api/quit')
+    async def quit_app():
+        if on_shutdown is None:
+            raise HTTPException(400, 'Stop the app from its terminal.')
+        await execute('stop')
+        on_shutdown()
+        return {'quitting': True}
 
     @app.post('/api/scan')
     async def scan():
