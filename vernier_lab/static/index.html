@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#117d70">
+  <title>Vernier Lab · Explore your experiment</title>
+  <link rel="icon" href="/static/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/plotly.min.js" defer></script>
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Vernier Lab home"><img src="/static/mark.svg" alt="" width="35" height="35"><span>vernier<span class="brand-light">lab</span></span><span class="beta">WORKSPACE</span></a>
+    <div class="top-right"><span class="local-indicator"><i></i> Local session</span><button id="help-button" class="button quiet">Quick guide <span aria-hidden="true">↗</span></button></div>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="eyebrow">YOUR LAB BENCH</div>
+      <div class="section-heading"><h2>Devices</h2><span id="device-count" class="count">0</span></div>
+      <p class="muted small">Connect Go Direct sensors over Bluetooth.</p>
+      <button id="scan" class="button scan full"><span aria-hidden="true">⌕</span> Search for devices</button>
+      <div id="scan-note" class="small muted" role="status">Turn on your sensor, then search.</div>
+      <div id="devices"></div>
+      <div id="device-empty" class="device-empty"><div class="bluetooth-symbol" aria-hidden="true">ᛒ</div><h3>Your next discovery starts here</h3><p>Connect a sensor to choose channels and bring your experiment to life.</p></div>
+      <div class="sidebar-bottom"><div class="demo-card"><div class="demo-heading"><span class="small-icon" aria-hidden="true">∿</span><strong>Just exploring?</strong></div><p>Try a simulated force and motion sensor. No hardware needed.</p><button id="demo" class="text-button">Add demo device <span aria-hidden="true">→</span></button></div><p class="privacy-note"><span aria-hidden="true">▣</span> Your measurements stay on this computer.</p></div>
+    </aside>
+    <main>
+      <div class="page-heading"><div><div class="eyebrow">EXPERIMENT WORKSPACE</div><h1><input id="experiment-title" aria-label="Experiment title" value="Untitled experiment" maxlength="80"></h1><p class="muted subtitle">A little curiosity. A world of data.</p></div><button id="export" class="button" disabled><span aria-hidden="true">↓</span> Export CSV</button></div>
+      <div id="notice" class="notice" role="alert" hidden></div>
+      <div id="demo-banner" class="demo-banner" hidden><span class="demo-tag">DEMO</span> Simulated measurements · connect a real sensor for your experiment.</div>
+      <section class="collection-bar" aria-label="Collection controls">
+        <div class="transport"><button id="start" class="button primary"><span aria-hidden="true">●</span> Start collection</button><button id="stop" class="button square" aria-label="Stop collection" title="Stop collection" disabled>■</button><button id="reset" class="button square" aria-label="Reset collected data" title="Reset collected data" disabled>↺</button></div>
+        <div class="sampling"><label for="period">Sampling interval</label><div class="input-unit"><input id="period" type="number" min="10" max="10000" step="1" value="50"><span>ms</span></div><span id="sample-rate" class="muted small">20 Hz</span></div>
+        <div class="collection-status"><span id="status-dot" class="status-dot"></span><span id="status">Ready to connect</span></div>
+      </section>
+      <section class="metrics" aria-label="Experiment statistics"><div><span class="metric-label">ELAPSED TIME</span><span id="elapsed" class="metric-value">0.00 <small>s</small></span></div><div><span class="metric-label">RECORDED VALUES</span><span id="samples" class="metric-value">0</span></div><div><span class="metric-label">ACTIVE CHANNELS</span><span id="channels" class="metric-value">0</span></div><div class="live-note"><span class="live-wave" aria-hidden="true">∿</span><p>From real-world motion<br>to measurable insight.</p></div></section>
+      <section aria-label="Graphs"><div class="graphs-heading"><div class="section-heading"><h2>Live graphs</h2><span id="graph-count" class="count">1</span></div><button id="add-graph" class="text-button">+ Add graph</button></div><div id="graphs"></div></section>
+      <footer><span><i class="footer-dot"></i> Built for hands-on science</span><span>Scroll to zoom · drag to inspect · double-click to fit</span></footer>
+    </main>
+  </div>
+  <dialog id="help-dialog"><div class="dialog-heading"><h2>A quick start</h2><button class="button square" data-close="help-dialog" aria-label="Close guide">×</button></div><ol class="guide"><li><strong>Connect your sensor</strong><p>Turn on a Go Direct sensor. Search, then connect. Close Graphical Analysis or other apps connected to it.</p></li><li><strong>Choose what to measure</strong><p>Check the channels to record and set the sampling interval in milliseconds. Smaller intervals collect more often.</p></li><li><strong>Make it visible</strong><p>Start collection. Use “Series” on each graph to overlay channels. Different units get separate labeled axes. Add graphs to compare views.</p></li><li><strong>Explore and keep your data</strong><p>Stop, zoom, and hover for values. Export downloads all samples from the series shown on your graphs, including samples outside the zoomed view.</p></li></ol><div class="guide-note">Units come from the sensor; no extra calibration or zero offset is applied. Time is reconstructed from the requested interval and each device’s host start time; devices are not hardware synchronized. Each Start creates a new run.<br><br>Data lives in server memory. Refreshing this page keeps it; stopping the app or resetting clears it. Export before closing the app. Demo data is clearly labeled and cannot be mixed with real measurements.</div></dialog>
+  <dialog id="reset-dialog"><h2>Clear this experiment’s data?</h2><p>All recorded runs will be removed. Your devices and graph layout will stay connected. Export first if you want to keep the measurements.</p><div class="dialog-actions"><button class="button" data-close="reset-dialog">Keep data</button><button id="confirm-reset" class="button danger">Clear data</button></div></dialog>
+</body>
+</html>

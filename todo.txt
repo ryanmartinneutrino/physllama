@@ -1,0 +1,16 @@
+We are going to create a web app to run on a computer and connect, via bluetooth, to a "Go Direct" sensor from Vernier. It's a small box with a few sensors (accelerometer, force). It says that it works with LabQuest2 and LabQuest3.
+
+The website that we're building should show a list of available devices (there is currently only 1 and it's on, try to find it), and the user should have an option to search/connect/disconnect to a device. The web page should allow additional devices to be connected. 
+
+The user should be able to choose which sensors to record and display on graphs. User should be able to start/stop/reset data collection, as well as download the displayed data. If possible, user can choose sampling time. Make sure units are correct (either arbitrary or some calibration). 
+
+The user should be able to plot more than one thing on a graph, the graph should look nice (zoomable, cursor shows data). The user should be able to add additional graphs. 
+
+If there is a battery level to be displayed for a device, include that. 
+
+Make the website look good. 
+
+Eventually, we'll have to package this into an app that a student can run on their laptop (windows or mac) so keep that in mind. 
+
+Make this a private github repository, no actions, just a simple setup. 
+

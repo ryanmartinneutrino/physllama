@@ -1,0 +1,13 @@
+{
+  "name": "vernier-lab",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "plotly.js-basic-dist-min": "4.3.0"
+  }
+}
