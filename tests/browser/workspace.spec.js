@@ -62,6 +62,7 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await page.locator('[data-device="demo-2"] [data-device-action="disconnect"]').click();
   await expect(page.locator('#device-count')).toHaveText('1');
   await page.setViewportSize({width: 390, height: 844});
+  await expect.poll(() => page.locator('.plot').first().evaluate(el => el._fullLayout.width)).toBeLessThan(390);
   await page.screenshot({path: 'test-results/workspace-mobile.png', fullPage: true});
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
