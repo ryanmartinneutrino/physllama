@@ -19,19 +19,31 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect(page.locator('#sample-rate')).toHaveText('50 Hz');
   await page.getByRole('button', {name: '+ Add graph'}).click();
   await expect(page.locator('.graph')).toHaveCount(2);
+  const first = page.locator('.graph').first();
   const second = page.locator('.graph').nth(1);
-  await second.locator('summary').click();
-  await second.locator('[data-series="demo-1/1"]').uncheck();
-  await second.locator('[data-series="demo-2/1"]').uncheck();
-  await second.locator('summary').click();
+  await expect(second.locator('.selection-count')).toHaveText('0 selected');
+  await expect(second.getByRole('group', {name: 'Demo Motion & Force 1', exact: true})).toBeVisible();
+  await expect(second.getByRole('group', {name: 'Demo Motion & Force 2', exact: true})).toBeVisible();
+  await expect(second.locator('[data-series="demo-1/3"]')).toBeDisabled();
+  await second.locator('[data-series="demo-1/2"]').check();
+  await second.locator('[data-series="demo-2/1"]').check();
+  await expect(second.locator('.selection-count')).toHaveText('2 selected');
+  await expect(first.locator('.selection-count')).toHaveText('3 selected');
   await page.getByRole('button', {name: 'Start collection'}).click();
   await expect(page.locator('#status')).toHaveText('Recording');
   await expect(page.locator('#scan')).toBeDisabled();
   await expect.poll(async () => Number((await page.locator('#samples').innerText()).replaceAll(',', ''))).toBeGreaterThan(30);
+  await second.locator('[data-series="demo-1/2"]').uncheck();
+  await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.length)).toBe(1);
+  await expect(first.locator('[data-series="demo-1/2"]')).toBeChecked();
+  await expect(page.locator('#channels')).toHaveText('3');
+  await second.locator('[data-series="demo-1/2"]').check();
   await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
   await expect(page.locator('#status')).toHaveText('Collection stopped');
   await expect.poll(() => page.locator('.graph').first().locator('.plot').evaluate(el => el.data?.length)).toBe(3);
-  await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.length)).toBe(1);
+  await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.map(s => s.name))).toEqual([
+    'Demo Motion & Force 1 · Acceleration X', 'Demo Motion & Force 2 · Force',
+  ]);
   const plot = page.locator('.plot').first();
   await expect.poll(() => plot.evaluate(el => !!el.layout.yaxis2)).toBe(true);
   await plot.evaluate(el => window.Plotly.relayout(el, {'xaxis.range': [0.1, 0.5]}));
@@ -54,6 +66,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await page.reload();
   await expect(page.locator('#samples')).toHaveText(samples);
   await expect(page.locator('.graph')).toHaveCount(2);
+  await expect(second.locator('.selection-count')).toHaveText('2 selected');
+  await expect(second.locator('[data-series="demo-1/1"]')).not.toBeChecked();
   await expect.poll(() => page.locator('.plot').first().evaluate(el => el.data?.[0]?.x?.length || 0)).toBeGreaterThan(1);
   await page.getByRole('button', {name: 'Reset collected data'}).click();
   await page.getByRole('button', {name: 'Clear data'}).click();

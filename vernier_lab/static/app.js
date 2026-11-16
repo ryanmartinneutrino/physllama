@@ -51,6 +51,17 @@ function availableChannels() {
   }
   return [...result.values()];
 }
+function graphChannelOptions() {
+  const channels = new Map(availableChannels().map(s => [s.id, {...s, canPlot: true}]));
+  for (const device of state.devices.filter(d => d.connected)) {
+    for (const sensor of device.sensors) {
+      const id = `${device.id}/${sensor.number}`;
+      if (!channels.has(id)) channels.set(id, {id, device_id: device.id, device: device.name,
+        name: sensor.name, unit: sensor.unit, canPlot: false, supported: sensor.supported});
+    }
+  }
+  return [...channels.values()];
+}
 function colorFor(id) { return colors[Math.max(0, availableChannels().findIndex(s => s.id === id)) % colors.length]; }
 function selectedConfiguration() {
   return Object.fromEntries(state.devices.filter(d => d.connected).map(d => [d.id, [...d.selected]]));
@@ -73,7 +84,7 @@ function applyState(next, withPoints) {
   lastError = next.error;
   renderControls(); renderDevices();
   const channels = availableChannels();
-  const signature = JSON.stringify(channels);
+  const signature = JSON.stringify(graphChannelOptions());
   if (signature !== channelSignature) {
     channelSignature = signature;
     for (const graph of graphs) {
@@ -142,7 +153,7 @@ function addGraph(saved = {}) {
     auto: saved.auto ?? true, follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
   if (graph.auto) graph.selected = availableChannels().map(s => s.id);
   const node = document.createElement('article'); node.className = 'graph';
-  node.innerHTML = `<div class="graph-header"><div class="graph-title"><span class="graph-number">${String(graph.id).padStart(2, '0')}</span><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="series-picker"><summary>Series</summary><div class="series-options"></div></details><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
+  node.innerHTML = `<div class="graph-header"><div class="graph-title"><span class="graph-number">${String(graph.id).padStart(2, '0')}</span><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><section class="graph-sensors" aria-label="Sensors to plot"><div class="graph-sensors-heading"><h3>Sensors to plot</h3><span class="selection-count"></span></div><p>Check sensors to overlay on this graph, including sensors from different devices.</p><div class="series-options"></div></section><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
@@ -164,6 +175,7 @@ function addGraph(saved = {}) {
     if (!id) return;
     graph.auto = false;
     graph.selected = e.target.checked ? [...graph.selected, id] : graph.selected.filter(s => s !== id);
+    updateSelectionCount(graph);
     graph.dirty = true; graph.fit++; drawGraph(graph); renderControls(); saveLayout();
   });
   renderSeriesPicker(graph); drawGraph(graph);
@@ -171,8 +183,20 @@ function addGraph(saved = {}) {
   return graph;
 }
 function renderSeriesPicker(graph) {
-  const channels = availableChannels();
-  $('.series-options', graph.node).innerHTML = channels.length ? channels.map(s => `<label><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) ? 'checked' : ''}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span><small>${esc(s.device)}</small></span></label>`).join('') : '<p class="small muted">Connect a device and select channels to record.</p>';
+  const groups = new Map();
+  for (const channel of graphChannelOptions()) {
+    if (!groups.has(channel.device_id)) groups.set(channel.device_id, []);
+    groups.get(channel.device_id).push(channel);
+  }
+  $('.series-options', graph.node).innerHTML = groups.size ? [...groups.values()].map(channels =>
+    `<fieldset><legend>${esc(channels[0].device)}</legend><div class="device-series">${channels.map(s =>
+      `<label class="series-option${s.canPlot ? '' : ' unavailable'}"><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) && s.canPlot ? 'checked' : ''} ${s.canPlot ? '' : 'disabled'}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span>${s.canPlot ? '' : `<small>${s.supported === false ? 'Unsupported event channel' : 'Enable recording in Devices'}</small>`}</span></label>`
+    ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to see its sensors here. Choose channels to record in Devices.</p>';
+  updateSelectionCount(graph);
+}
+function updateSelectionCount(graph) {
+  const count = availableChannels().filter(s => graph.selected.includes(s.id)).length;
+  $('.selection-count', graph.node).textContent = `${count} selected`;
 }
 // Min/max bucket reduction keeps extrema visible; CSV always contains every value.
 function displayPoints(data) {
@@ -226,7 +250,7 @@ async function drawGraph(graph) {
     layout.xaxis.range = [0, 10]; layout.xaxis.autorange = false;
     layout.yaxis.range = [-5, 5];
     layout.annotations = [{xref: 'paper', yref: 'paper', x: .5, y: .56, showarrow: false,
-      text: `<b>${channels.length ? 'Your experiment is ready' : 'Make room for discovery'}</b><br><span style="font-size:11px;color:#95a69b">${channels.length ? 'Start collection to see your measurements here.' : 'Select sensor channels to start plotting.'}</span>`,
+      text: `<b>${channels.length ? 'Your experiment is ready' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#95a69b">${channels.length ? 'Start collection to see your measurements here.' : 'Use the checklist above to start plotting.'}</span>`,
       font: {size: 15, color: '#728d7c'}, bgcolor: 'rgba(255,255,255,.94)', borderpad: 15}];
   }
   try {
@@ -260,7 +284,7 @@ $('#confirm-reset').addEventListener('click', async () => { $('#reset-dialog').c
 $('#help-button').addEventListener('click', () => $('#help-dialog').showModal());
 $('[data-close="help-dialog"]').addEventListener('click', () => $('#help-dialog').close());
 $('[data-close="reset-dialog"]').addEventListener('click', () => $('#reset-dialog').close());
-$('#add-graph').addEventListener('click', () => { addGraph(); saveLayout(); renderControls(); });
+$('#add-graph').addEventListener('click', () => { addGraph({auto: false}); saveLayout(); renderControls(); });
 $('#experiment-title').addEventListener('change', saveLayout);
 $('#export').addEventListener('click', async () => {
   const ids = [...new Set(graphs.flatMap(g => g.selected))].filter(id => state.series.some(s => s.id === id));
