@@ -198,3 +198,30 @@ def test_desktop_quit_stops_acquisition_and_requests_graceful_shutdown():
 def test_terminal_server_cannot_be_quit_from_the_browser(client):
     assert client.get('/api/app').json()['desktop'] is False
     assert client.post('/api/quit').status_code == 400
+
+
+def test_start_accepts_the_exact_graph_selection_and_rejects_empty_selection(client):
+    setup_demo(client, count=2)
+    chosen = {'selections': {'demo-1': [2], 'demo-2': [1, 4]}, 'period_ms': 20}
+    started = client.post('/api/start', json=chosen)
+    assert started.status_code == 200
+    assert {s['id'] for s in started.json()['series']} == {'demo-1/2', 'demo-2/1', 'demo-2/4'}
+    assert started.json()['period_ms'] == 20
+    assert client.post('/api/start', json=chosen).status_code == 400
+    client.post('/api/stop')
+    assert client.post('/api/start', json={'selections': {}, 'period_ms': 20}).status_code == 400
+    changed = client.post('/api/start', json={'selections': {'demo-1': [3]}, 'period_ms': 50})
+    assert changed.status_code == 200
+    selected = {d['id']: d['selected'] for d in changed.json()['devices']}
+    assert selected == {'demo-1': [3], 'demo-2': []}
+    assert changed.json()['run'] == 2
+
+
+def test_graph_selection_validation_happens_before_any_device_starts(client):
+    setup_demo(client)
+    invalid = client.post('/api/start', json={'selections': {'demo-1': [99]}, 'period_ms': 50})
+    assert invalid.status_code == 400
+    state = client.get('/api/state').json()
+    assert not state['recording']
+    assert not state['series']
+    assert state['run'] == 0

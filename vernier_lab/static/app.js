@@ -9,7 +9,7 @@ let graphs = [];
 
 function saveLayout() {
   try { localStorage.setItem('vernier-layout', JSON.stringify({title: $('#experiment-title').value,
-    graphs: graphs.map(({title, customTitle, selected, auto, follow}) => ({title, customTitle, selected, auto, follow}))})); } catch { /* Storage can be disabled. */ }
+    graphs: graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}))})); } catch { /* Storage can be disabled. */ }
 }
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
 async function request(path, body) {
@@ -44,27 +44,22 @@ function availableChannels() {
   for (const device of state.devices) {
     if (!device.connected) continue;
     for (const sensor of device.sensors) {
-      if (!device.selected.includes(sensor.number)) continue;
       const id = `${device.id}/${sensor.number}`;
-      result.set(id, {id, device_id: device.id, device: device.name, name: sensor.name, unit: sensor.unit, demo: device.demo});
+      result.set(id, {id, device_id: device.id, device: device.name, name: sensor.name, unit: sensor.unit,
+        demo: device.demo, supported: sensor.supported, active: state.recording && device.selected.includes(sensor.number)});
     }
   }
   return [...result.values()];
 }
 function graphChannelOptions() {
-  const channels = new Map(availableChannels().map(s => [s.id, {...s, canPlot: true}]));
-  for (const device of state.devices.filter(d => d.connected)) {
-    for (const sensor of device.sensors) {
-      const id = `${device.id}/${sensor.number}`;
-      if (!channels.has(id)) channels.set(id, {id, device_id: device.id, device: device.name,
-        name: sensor.name, unit: sensor.unit, canPlot: false, supported: sensor.supported});
-    }
-  }
-  return [...channels.values()];
+  return availableChannels().map(s => ({...s, canPlot: s.supported !== false &&
+    (!state.recording || s.active || state.series.some(recorded => recorded.id === s.id))}));
 }
 function colorFor(id) { return colors[Math.max(0, availableChannels().findIndex(s => s.id === id)) % colors.length]; }
 function selectedConfiguration() {
-  return Object.fromEntries(state.devices.filter(d => d.connected).map(d => [d.id, [...d.selected]]));
+  const selected = new Set(graphs.flatMap(graph => graph.selected));
+  return Object.fromEntries(state.devices.filter(d => d.connected).map(d => [d.id,
+    d.sensors.filter(s => s.supported && selected.has(`${d.id}/${s.number}`)).map(s => s.number)]));
 }
 function applyState(next, withPoints) {
   state = next;
@@ -83,41 +78,39 @@ function applyState(next, withPoints) {
   if (next.error && next.error !== lastError) showNotice(next.error);
   lastError = next.error;
   renderControls(); renderDevices();
-  const channels = availableChannels();
   const signature = JSON.stringify(graphChannelOptions());
   if (signature !== channelSignature) {
     channelSignature = signature;
     for (const graph of graphs) {
-      if (graph.auto) graph.selected = channels.map(s => s.id);
       renderSeriesPicker(graph);
       graph.dirty = true;
     }
   }
   for (const graph of graphs) drawGraph(graph);
-  const latest = new Map([...points].map(([id, data]) => [id, data.at(-1)?.value]));
-  document.querySelectorAll('[data-reading]').forEach(el => {
-    const value = latest.get(el.dataset.reading);
-    el.textContent = value == null ? '—' : value.toFixed(2);
-  });
 }
 function renderControls() {
   const connected = state.devices.filter(d => d.connected);
-  const channels = connected.reduce((sum, d) => sum + d.selected.length, 0);
+  const channels = state.recording ? connected.reduce((sum, d) => sum + d.selected.length, 0)
+    : Object.values(selectedConfiguration()).reduce((sum, numbers) => sum + numbers.length, 0);
   $('#device-count').textContent = connected.length;
   $('#start').disabled = busy || offline || state.recording || !channels;
   $('#stop').disabled = busy || offline || !state.recording;
   $('#reset').disabled = busy || offline || state.recording || !state.total_points;
   for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || offline || state.recording;
   $('#export').disabled = busy || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
+  const options = new Map(graphChannelOptions().map(s => [s.id, s]));
   for (const graph of graphs) {
     $('.graph-export', graph.node).disabled = busy || offline || !state.series.some(s => graph.selected.includes(s.id));
+    for (const checkbox of graph.node.querySelectorAll('[data-series]')) {
+      checkbox.disabled = busy || offline || !options.get(checkbox.dataset.series)?.canPlot;
+    }
   }
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
   $('#samples').textContent = (state.total_points || 0).toLocaleString();
   $('#channels').textContent = channels;
   $('#sample-rate').textContent = `${(1000 / state.period_ms).toLocaleString(undefined, {maximumFractionDigits: 2})} Hz`;
   if (document.activeElement !== $('#period')) $('#period').value = state.period_ms;
-  $('#status').textContent = offline ? 'Server unavailable' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : 'Ready to connect';
+  $('#status').textContent = offline ? 'Server unavailable' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
   $('#status-dot').classList.toggle('recording', state.recording && !offline);
   $('#demo-banner').hidden = !state.devices.some(d => d.demo && d.connected) && !state.series.some(s => s.demo);
 }
@@ -133,7 +126,7 @@ function renderDevices() {
       <div class="device-meta">${d.demo ? 'Explore with generated measurements' : `${esc(d.id)}${d.rssi != null ? ` · ${d.rssi} dBm` : ''}`}</div>
       <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled}>${d.connected ? 'Disconnect' : 'Connect'}</button></div>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
-      ${d.connected ? `<div class="sensor-list"><div class="sensor-label">CHANNELS TO RECORD</div>${d.sensors.map(s => `<label class="sensor-row" title="${s.supported ? `Sampling interval: ${s.minimum_ms}–${s.maximum_ms} ms` : 'Event-based channel: not supported yet'}"><input type="checkbox" data-sensor="${s.number}" ${d.selected.includes(s.number) ? 'checked' : ''} ${disabled || (!s.supported ? 'disabled' : '')}><span class="sensor-name">${esc(s.name)}</span><span class="sensor-value" data-reading="${esc(`${d.id}/${s.number}`)}">—</span><span class="sensor-unit">${esc(s.unit)}</span></label>`).join('')}</div>` : ''}
+      ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · choose what to record in a graph’s Sensors dropdown.</p>` : ''}
     </article>`;
   }).join('');
 }
@@ -141,21 +134,11 @@ $('#devices').addEventListener('click', event => {
   const button = event.target.closest('[data-device-action]');
   if (button) action(button.dataset.deviceAction, {device_id: button.closest('[data-device]').dataset.device});
 });
-$('#devices').addEventListener('change', event => {
-  const input = event.target.closest('[data-sensor]');
-  if (!input) return;
-  const selections = selectedConfiguration();
-  const id = input.closest('[data-device]').dataset.device;
-  const number = Number(input.dataset.sensor);
-  selections[id] = input.checked ? [...selections[id], number] : selections[id].filter(n => n !== number);
-  action('configure', {selections, period_ms: state.period_ms});
-});
 
 function addGraph(saved = {}) {
   const customTitle = saved.customTitle ?? Boolean(saved.title && !/^Graph \d+$/.test(saved.title));
   const graph = {id: ++graphCounter, title: customTitle ? saved.title : `Graph ${graphs.length + 1}`, customTitle, selected: saved.selected || [],
-    auto: saved.auto ?? true, follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
-  if (graph.auto) graph.selected = availableChannels().map(s => s.id);
+    follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
   const node = document.createElement('article'); node.className = 'graph';
   node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
@@ -187,7 +170,6 @@ function addGraph(saved = {}) {
   $('.series-options', node).addEventListener('change', e => {
     const id = e.target.dataset.series;
     if (!id) return;
-    graph.auto = false;
     graph.selected = e.target.checked ? [...graph.selected, id] : graph.selected.filter(s => s !== id);
     updateSelectionCount(graph);
     graph.dirty = true; graph.fit++; drawGraph(graph); renderControls(); saveLayout();
@@ -224,8 +206,11 @@ function renderSeriesPicker(graph) {
   }
   $('.series-options', graph.node).innerHTML = groups.size ? [...groups.values()].map(channels =>
     `<fieldset><legend>${esc(channels[0].device)}</legend><div class="device-series">${channels.map(s =>
-      `<label class="series-option${s.canPlot ? '' : ' unavailable'}"><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) && s.canPlot ? 'checked' : ''} ${s.canPlot ? '' : 'disabled'}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span>${s.canPlot ? '' : `<small>${s.supported === false ? 'Unsupported event channel' : 'Enable recording in Devices'}</small>`}</span></label>`
-    ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to see its sensors here. Choose channels to record in Devices.</p>';
+      `<label class="series-option${s.canPlot ? '' : ' unavailable'}"><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) ? 'checked' : ''} ${s.canPlot && !busy && !offline ? '' : 'disabled'}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span>${s.canPlot ? '' : `<small>${s.supported === false ? 'Unsupported event channel' : 'Stop collection to add this sensor'}</small>`}</span></label>`
+    ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to choose sensors for this graph.</p>';
+  $('.sensor-dropdown > p', graph.node).textContent = state.recording
+    ? 'Show or hide recorded data here. Stop collection before adding new sensors to record.'
+    : 'Checked sensors across all graphs will be recorded when you start. Each sensor is recorded once.';
   updateSelectionCount(graph);
 }
 function updateSelectionCount(graph) {
@@ -310,7 +295,7 @@ $('#scan').addEventListener('click', async () => {
   $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No Go Direct devices found. Wake the sensor and try again.') : 'Search unavailable. Check Bluetooth on this computer.';
 });
 $('#demo').addEventListener('click', () => action('demo'));
-$('#start').addEventListener('click', () => action('start'));
+$('#start').addEventListener('click', () => action('start', {selections: selectedConfiguration(), period_ms: state.period_ms}));
 $('#stop').addEventListener('click', () => action('stop'));
 $('#period').addEventListener('change', () => action('configure', {selections: selectedConfiguration(), period_ms: Number($('#period').value)}));
 $('#reset').addEventListener('click', () => $('#reset-dialog').showModal());
@@ -318,7 +303,7 @@ $('#confirm-reset').addEventListener('click', async () => { $('#reset-dialog').c
 $('#help-button').addEventListener('click', () => $('#help-dialog').showModal());
 $('[data-close="help-dialog"]').addEventListener('click', () => $('#help-dialog').close());
 $('[data-close="reset-dialog"]').addEventListener('click', () => $('#reset-dialog').close());
-$('#add-graph').addEventListener('click', () => { addGraph({auto: false}); saveLayout(); renderControls(); });
+$('#add-graph').addEventListener('click', () => { addGraph(); saveLayout(); renderControls(); });
 $('#experiment-title').addEventListener('change', saveLayout);
 async function downloadCSV(selected, title) {
   const ids = [...new Set(selected)].filter(id => state.series.some(s => s.id === id));

@@ -4,13 +4,13 @@ A local web app for recording and exploring Vernier Go Direct Bluetooth sensors.
 
 ## Standalone installers (Windows and Mac)
 
-Download the installer for your computer from the private [v0.2.0 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.0). Sign into the GitHub account with access to this repository.
+Download the installer for your computer from the public [v0.2.1 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.1). No GitHub account or sign-in is required.
 
 | Computer | Download |
 | --- | --- |
-| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.0-windows-x64-setup.exe` |
-| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.0-macos-arm64-installer.zip` |
-| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.0-macos-x64-installer.zip` |
+| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.1-windows-x64-setup.exe` |
+| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.1-macos-arm64-installer.zip` |
+| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.1-macos-x64-installer.zip` |
 
 These are **offline, self-contained packages**: Python, platform-specific dependencies, the app, and graphing assets are included. Students do not need Python, Node, Git, a terminal command, or an internet connection to run the installed app. The Mac install script opens Terminal to confirm installation; app launches after installation use the browser directly.
 
@@ -42,10 +42,10 @@ Requires Python 3.10+ and a working Bluetooth Low Energy adapter. On Ubuntu/Debi
 sudo apt install python3 python3-venv bluez
 ```
 
-Clone this private repository using your GitHub account, then launch:
+Clone the public repository, then launch:
 
 ```bash
-git clone git@github.com:ryanmartinneutrino/vernierserver.git
+git clone https://github.com/ryanmartinneutrino/vernierserver.git
 cd vernierserver
 ./start.sh
 ```
@@ -65,17 +65,17 @@ If scanning fails, check `bluetoothctl show` and `rfkill list`. “No default co
 
 ## Collect and explore
 
-- Connect one or more discovered Go Direct devices. Each device has its own channel selection and disconnect control.
-- Select channels to **record**, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
+- Connect one or more discovered Go Direct devices. The Devices panel manages connections and battery status. Sensor selection happens only in graph dropdowns.
+- Check sensors in the graphs’ **Sensors** dropdowns, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
 - **Start collection** starts a new run. **Stop** keeps the data. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
-- Each graph has a **Sensors** dropdown with checkboxes grouped by device, independent of what is recorded. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. Channels without recorded data must first be enabled for recording in **Devices**. Different units use separate labeled axes; series with the same units share an axis.
+- Each graph has a **Sensors** dropdown with checkboxes grouped by device. The union of checked sensors across all graphs determines what the next run records, with each sensor recorded once even when used on multiple graphs. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. All supported connected sensors are available directly in the dropdown. While recording, you can show or hide already-recorded channels; stop first to add a previously unrecorded sensor. Removing a graph or hiding a trace does not interrupt the current run, but changes the selection for the next Start. Different units use separate labeled axes; series with the same units share an axis.
 - Graphs have a single editable title. Automatic titles renumber after deletion; custom titles survive deletion of other graphs and page reloads.
 - Scroll to zoom, drag a zoom rectangle, or select pan in the Plotly toolbar. Hover for the sensor, value, units, time, and run. Zooming switches off **Follow live**. **Fit view** resets the axes; check **Follow live** to keep fitting new samples.
 - **Download CSV** on a graph exports only that graph’s checked sensors, including their full recorded history regardless of zoom or display reduction. Its filename includes the graph title. **Export CSV** at the top exports the combined selection across all graphs. The Plotly camera button exports a graph as an image.
 - **Reset** asks before removing all collected runs. It preserves device connections and the graph layout.
 - The battery reading comes from the device when connected. Click its **refresh** label while stopped to update it. No battery percentage is invented for demo devices or devices with an unavailable reading.
 
-**Add demo device** provides clearly labeled generated force/acceleration measurements for trying the interface without hardware. Add it more than once to test multiple devices. Synthetic and real measurements cannot be recorded in the same session, even across separate runs; export and reset before switching. Disconnect or deselect demo devices before starting real acquisition.
+**Add demo device** provides clearly labeled generated force/acceleration measurements for trying the interface without hardware. Add it more than once to test multiple devices. Synthetic and real measurements cannot be recorded in the same session, even across separate runs; export and reset before switching. Disconnect demo devices or uncheck their sensors in every graph before starting real acquisition.
 
 ## Data, units, and timing
 
@@ -152,7 +152,7 @@ sudo apt install nsis
 
 Individual targets are `windows-x64`, `macos-arm64`, and `macos-x64`. `--uv` and `--makensis` can supply explicit executable paths. On Windows use the virtualenv's `Scripts/python.exe`, or any Python 3.10+ with the build dependency installed. This process needs internet while building; the resulting installers do not.
 
-Commit source changes before building; the builder requires a clean checkout so its manifest identifies the exact source revision. Outputs are written to ignored `dist/`. The Mac ZIPs contain the offline installer, README, and a `.app` with Bluetooth usage descriptions. The Windows NSIS executable installs shortcuts and a per-user uninstaller. No GitHub Actions workflows or hosted build services are used. Upload artifacts to a private GitHub release after validation; do not commit bundled runtimes into Git.
+Commit source changes before building; the builder requires a clean checkout so its manifest identifies the exact source revision. Outputs are written to ignored `dist/`. The Mac ZIPs contain the offline installer, README, and a `.app` with Bluetooth usage descriptions. The Windows NSIS executable installs shortcuts and a per-user uninstaller. No GitHub Actions workflows or hosted build services are used. Upload artifacts to a GitHub release after validation; do not commit bundled runtimes into Git.
 
 Run `.venv/bin/python scripts/verify_installers.py` after building (requires `7z`) to verify the installer checksums, every payload file against the build manifest, Mac executable permissions and Bluetooth metadata, and native Python executable formats. These integrity checks do not replace installation and Bluetooth tests on the target OS.
 
@@ -172,4 +172,4 @@ For a classroom release, test both CPU variants on Macs and the Windows installe
 - [Bleak Bluetooth library](https://github.com/hbldh/bleak)
 - [Plotly.js](https://github.com/plotly/plotly.js)
 
-The private GitHub repository uses no Actions workflows, and GitHub Actions is disabled in its repository settings. Third-party license notices are in `THIRD_PARTY_NOTICES.md` and the bundled Plotly license. This is an independent project, not an official Vernier product.
+The public GitHub repository uses no Actions workflows, and GitHub Actions is disabled in its repository settings. Third-party license notices are in `THIRD_PARTY_NOTICES.md` and the bundled Plotly license. This is an independent project, not an official Vernier product.

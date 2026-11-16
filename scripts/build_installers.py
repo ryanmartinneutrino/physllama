@@ -21,7 +21,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / 'packaging/runtimes.json').read_text())
-VERSION = '0.2.0'
+VERSION = '0.2.1'
 
 
 def download_runtime(target, cache):

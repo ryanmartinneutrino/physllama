@@ -1,13 +1,13 @@
-Vernier Lab 0.2.0 preview
+Vernier Lab 0.2.1 preview
 
-- Light-blue interface and a compact, device-grouped Sensors dropdown on every graph.
-- Single editable graph titles; automatic names remain consistent after deletion and reload.
-- Per-graph Download CSV exports the full history of that graph's selected sensors, independent of zoom.
-- Offline Windows x64 setup executable and macOS installer ZIPs for Apple Silicon and Intel. Python and all dependencies are included.
-- Installed app launcher reopens the current session; Quit app releases devices and stops the service.
+- Choose sensors only in each graph’s Sensors dropdown; the Devices panel now manages connections and battery status.
+- Start records the union of checked sensors across all graphs, collecting each sensor only once.
+- Show/hide existing data during recording; stop before adding new sensors. Previously collected data is preserved.
+- Repository and installer downloads are now public and do not require signing in.
+- Includes the light-blue interface, consistent graph titles, and per-graph full-history CSV downloads introduced in 0.2.0.
 
-Download the installer for your operating system and processor. See README.md for installation, Bluetooth setup, updates, and uninstall instructions. Each artifact has a SHA-256 checksum file.
+Offline Windows x64 setup executable and macOS installer ZIPs for Apple Silicon and Intel include Python and all dependencies. See README.md for installation, Bluetooth setup, updates, and uninstall instructions. Each artifact has a SHA-256 checksum file.
 
-These are unsigned preview builds. macOS ZIPs contain an offline .command installer and .app, rather than a signed PKG/DMG. Windows and macOS installation, launch, permission prompts, and physical Bluetooth acquisition have not yet been tested on their native operating systems. Application tests and archive integrity checks were performed on Linux. OS security settings may block unsigned apps; signing/notarization is not included.
+These are unsigned preview builds. macOS ZIPs contain an offline .command installer and .app, rather than a signed PKG/DMG. Windows and macOS installation, launch, permission prompts, and physical Bluetooth acquisition have not yet been tested on their native operating systems. Application tests and archive integrity checks are performed on Linux. Signing/notarization is not included.
 
-GitHub Actions remains disabled. Source is included with the bundles and in this release's source archive.
+GitHub Actions remains disabled. Source is included with the bundles and in this release’s source archive.

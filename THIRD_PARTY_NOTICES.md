@@ -9,7 +9,7 @@ Python dependencies are installed from PyPI by `start.sh` or included in the sta
 - `FastAPI` — MIT. See <https://github.com/fastapi/fastapi>.
 - `Uvicorn` — BSD 3-Clause. See <https://github.com/encode/uvicorn>.
 
-Their transitive dependencies retain their own notices in the installed distributions (`deps/*.dist-info/licenses` or equivalent). The Go Direct library's Python source is included in `deps/godirect/`; the application's Python and JavaScript sources are included in `app/`. Build scripts and corresponding app sources are also available in this private repository and each release's source archive.
+Their transitive dependencies retain their own notices in the installed distributions (`deps/*.dist-info/licenses` or equivalent). The Go Direct library's Python source is included in `deps/godirect/`; the application's Python and JavaScript sources are included in `app/`. Build scripts and corresponding app sources are also available in this public repository and each release's source archive.
 
 Standalone Python runtime distributions are provided by [Astral's python-build-standalone project](https://github.com/astral-sh/python-build-standalone), using CPython and its bundled dependencies under their respective licenses. Runtime licenses are retained in `python/`; upstream build inputs and source references are at the pinned [20261110 release](https://github.com/astral-sh/python-build-standalone/releases/tag/20261110). Runtime downloads are SHA-256 verified against `packaging/runtimes.json`.
 

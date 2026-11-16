@@ -27,7 +27,7 @@ def verify_manifest(manifest, read):
 
 
 def main():
-    artifacts = sorted((ROOT / 'dist').glob('VernierLab-0.2.0-*'))
+    artifacts = sorted((ROOT / 'dist').glob('VernierLab-0.2.1-*'))
     artifacts = [p for p in artifacts if p.suffix in ('.exe', '.zip')]
     assert len(artifacts) == 3, 'Expected Windows setup and both Mac installer ZIPs.'
     for artifact in artifacts:

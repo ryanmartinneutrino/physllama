@@ -151,8 +151,10 @@ class Lab:
         self.selected, self.period_ms = copy.deepcopy(selections), period_ms
         return self.snapshot()
 
-    def start(self):
+    def start(self, selections=None, period_ms=None):
         self.require_idle()
+        if selections is not None:
+            self.configure(selections, self.period_ms if period_ms is None else period_ms)
         active = {key: numbers for key, numbers in self.selected.items()
                   if numbers and key in self.devices and self.devices[key].connected}
         if not active:

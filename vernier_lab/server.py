@@ -96,8 +96,8 @@ def create_app(lab=None, on_shutdown=None):
         return await execute('configure', **body.model_dump())
 
     @app.post('/api/start')
-    async def start():
-        return await execute('start')
+    async def start(body: Configuration | None = None):
+        return await execute('start', **(body.model_dump() if body else {}))
 
     @app.post('/api/stop')
     async def stop():
