@@ -60,7 +60,10 @@ If you downloaded a ZIP, extract it and run `bash start.sh` in that directory.
 ```bash
 ./start.sh --no-browser              # open the URL yourself
 ./start.sh --port 8767               # use a different port
+./start.sh --server --port 8080      # listen on all IPv4 interfaces, without opening a browser
 ```
+
+With `--server`, open `http://<server-IP>:8080` from another computer on the network (use your chosen port). The default port is 8765. Bluetooth still runs on the server computer, so the sensors must be within its Bluetooth range. All clients share the same experiment and can control collection. Server mode has no login; use it on a trusted network. Without `--server`, the launcher listens only on `127.0.0.1`.
 
 Enable Bluetooth in your desktop settings. Turn on the Go Direct sensor, click **Search for devices**, and connect it. Do not connect it to Graphical Analysis, LabQuest, or another app at the same time. Pairing through desktop settings is not normally required.
 
@@ -131,7 +134,7 @@ If Chromium is already installed in a nonstandard location, set `PLAYWRIGHT_CHRO
 
 ```text
 desktop.py                   Bundled desktop entry point and graceful shutdown
-run.py                       Local launcher; loopback only
+run.py                       Command-line launcher; optional network server mode
 start.sh                     Linux/macOS virtualenv setup and launch
 vernier_lab/server.py        HTTP API and static asset serving
 vernier_lab/acquisition.py   Serialized Bluetooth worker and session store
@@ -142,7 +145,7 @@ scripts/build_installers.py  Offline Windows/Mac installer assembly
 tests/                       Backend and browser tests
 ```
 
-The SDK calls and BLE event loop live on one worker thread. Requests and acquisition are serialized there, avoiding cross-thread Bluetooth access. The browser polls bounded incremental batches and can rebuild its state after a reload. The service binds only to `127.0.0.1` and rejects foreign hosts/origins. Multiple tabs share one experiment; this is a single-user desktop service.
+The SDK calls and BLE event loop live on one worker thread. Requests and acquisition are serialized there, avoiding cross-thread Bluetooth access. The browser polls bounded incremental batches and can rebuild its state after a reload. By default the service binds to `127.0.0.1` and accepts local hostnames only. `--server` binds to `0.0.0.0` and accepts network hostnames; both modes reject requests with an Origin that differs from the request's host. Multiple tabs and clients share one experiment.
 
 The adapter includes focused compatibility fixes for godirect 1.2.1: BLE notification reassembly, full 32-bit channel masks, correct single-channel routing, and explicit dropped-sample handling. Metadata packets are skipped, including during command responses. Hardware validation is still required on the target sensor.
 

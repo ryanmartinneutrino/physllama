@@ -22,7 +22,7 @@ class Configuration(BaseModel):
     period_ms: float = Field(ge=10, le=10000, allow_inf_nan=False)
 
 
-def create_app(lab=None, on_shutdown=None):
+def create_app(lab=None, on_shutdown=None, server_mode=False):
     lab = lab or Lab()
 
     @asynccontextmanager
@@ -34,13 +34,14 @@ def create_app(lab=None, on_shutdown=None):
 
     app = FastAPI(title='Vernier Lab', lifespan=lifespan)
     app.state.lab = lab
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=['127.0.0.1', 'localhost', '[::1]', 'testserver'])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=(['*'] if server_mode else
+                       ['127.0.0.1', 'localhost', '[::1]', 'testserver']))
 
     @app.middleware('http')
-    async def local_requests(request: Request, call_next):
+    async def same_origin_requests(request: Request, call_next):
         origin = request.headers.get('origin')
         if origin and urlparse(origin).netloc != request.headers.get('host'):
-            return JSONResponse({'detail': 'Open the app from its localhost address.'}, status_code=403)
+            return JSONResponse({'detail': 'Open the app from the same server address as this request.'}, status_code=403)
         response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         if request.url.path.startswith('/api/'):
