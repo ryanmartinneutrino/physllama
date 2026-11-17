@@ -27,7 +27,7 @@ def verify_manifest(manifest, read):
 
 
 def main():
-    artifacts = sorted((ROOT / 'dist').glob('VernierLab-0.2.1-*'))
+    artifacts = sorted((ROOT / 'dist').glob('VernierLab-0.2.2-*'))
     artifacts = [p for p in artifacts if p.suffix in ('.exe', '.zip')]
     assert len(artifacts) == 3, 'Expected Windows setup and both Mac installer ZIPs.'
     for artifact in artifacts:
@@ -37,6 +37,7 @@ def main():
         if artifact.suffix == '.zip':
             with zipfile.ZipFile(artifact) as archive:
                 assert archive.testzip() is None
+                assert 'Open Anyway' in archive.read('START HERE - Mac.txt').decode()
                 prefix = 'Vernier Lab.app/Contents/Resources/'
                 manifest = json.loads(archive.read(prefix + 'BUILD-MANIFEST.json'))
                 verify_manifest(manifest, lambda path: archive.read(prefix + path))

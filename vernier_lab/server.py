@@ -63,6 +63,10 @@ def create_app(lab=None, on_shutdown=None):
     async def app_info():
         return {'name': 'Vernier Lab', 'desktop': on_shutdown is not None}
 
+    @app.get('/api/connection-status')
+    async def connection_status():
+        return lab.connection_status()
+
     @app.post('/api/quit')
     async def quit_app():
         if on_shutdown is None:

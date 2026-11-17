@@ -34,3 +34,5 @@
 .primary:hover:not(:disabled) { background: #bedff9; }
 .scan { background: #edf7ff; border-color: #bfdaf0; }
 .demo-card { background: #edf6fd; border-color: #d5e7f5; }
+
+.connection-progress{border:1px solid #b9d9ef;background:#edf7ff;color:#1e5480;padding:12px 16px;font-size:12px;line-height:1.6;border-radius:8px;margin-bottom:14px;overflow-wrap:anywhere}

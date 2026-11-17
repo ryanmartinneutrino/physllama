@@ -141,3 +141,45 @@ test('scan failures are visible and do not invent devices', async ({page}) => {
   await expect(page.locator('#notice')).toContainText('No Bluetooth adapters found');
   await expect(page.locator('#scan')).toBeEnabled();
 });
+
+test('Bluetooth progress stays visible through retry and clears on success or failure', async ({page}) => {
+  const snapshot = {devices: [{id: 'test-sensor', name: 'GDX Test', rssi: -42, demo: false,
+    connected: false, sensors: [], selected: [], battery: null, charging: false}],
+    series: [], recording: false, total_points: 0, period_ms: 50, generation: 'connection-test',
+    points: [], cursor: 0, elapsed: 0, error: null};
+  let progress = {status: 'idle'}, finish;
+  await page.route('**/api/state?*', route => route.fulfill({json: snapshot}));
+  await page.route('**/api/connection-status', route => route.fulfill({json: progress}));
+  await page.route('**/api/connect', async route => {
+    progress = {status: 'retrying', device_id: 'test-sensor', attempt: 1, max_attempts: 3,
+      message: 'GDX Test: connection interrupted. Retrying (next attempt 2 of 3).'};
+    const success = await new Promise(resolve => { finish = resolve; });
+    progress = {status: success ? 'connected' : 'failed'};
+    snapshot.devices[0].connected = success;
+    await route.fulfill(success ? {json: snapshot} : {status: 503, json: {detail: 'Could not connect after 3 attempts. Check Bluetooth permissions.'}});
+  });
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Connect', exact: true}).click();
+  await expect(page.locator('#connection-progress')).toContainText('attempt 2 of 3');
+  await expect(page.getByRole('button', {name: 'Retrying…', exact: true})).toBeDisabled();
+  await expect(page.locator('#scan')).toBeDisabled();
+  finish(false);
+  await expect(page.locator('#notice')).toContainText('Check Bluetooth permissions');
+  await expect(page.locator('#connection-progress')).toBeHidden();
+  await expect(page.getByRole('button', {name: 'Connect', exact: true})).toBeEnabled();
+  await page.getByRole('button', {name: 'Connect', exact: true}).click();
+  await expect(page.locator('#connection-progress')).toContainText('attempt 2 of 3');
+  finish(true);
+  await expect(page.getByRole('button', {name: 'Disconnect', exact: true})).toBeEnabled();
+  await expect(page.locator('#connection-progress')).toBeHidden();
+  await expect(page.locator('#notice')).toBeHidden();
+  // A refreshed tab can see another tab's ongoing connection without waiting
+  // for the serialized state endpoint to finish connecting.
+  progress = {status: 'connecting', device_id: 'test-sensor', message: 'Connecting — attempt 3 of 3'};
+  await page.reload();
+  await expect(page.locator('#connection-progress')).toContainText('attempt 3 of 3');
+  await expect(page.locator('#scan')).toBeDisabled();
+  progress = {status: 'connected'};
+  await expect(page.locator('#connection-progress')).toBeHidden();
+  await expect(page.locator('#scan')).toBeEnabled();
+});

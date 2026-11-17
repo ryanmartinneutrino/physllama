@@ -21,7 +21,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / 'packaging/runtimes.json').read_text())
-VERSION = '0.2.1'
+VERSION = '0.2.2'
 
 
 def download_runtime(target, cache):
@@ -101,6 +101,7 @@ def make_mac(target, workspace, runtime, uv, output):
     installer.write_text((ROOT / 'packaging/install-macos.command').read_text().replace('@ARCH@', 'arm64' if target.endswith('arm64') else 'x86_64'))
     installer.chmod(0o755)
     shutil.copy2(ROOT / 'README.md', distribution / 'README.md')
+    shutil.copy2(ROOT / 'packaging/START HERE - Mac.txt', distribution / 'START HERE - Mac.txt')
     destination = output / f'VernierLab-{VERSION}-{target}-installer.zip'
     zip_tree(distribution, destination)
     return destination

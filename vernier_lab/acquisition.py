@@ -38,6 +38,17 @@ class Lab:
         self.commands = queue.Queue()
         self.thread = None
         self.closing = False
+        self.connection_lock = threading.Lock()
+        self.connection = {'status': 'idle'}
+
+    def connection_status(self):
+        # Readable by HTTP while the single Bluetooth worker is connecting.
+        with self.connection_lock:
+            return self.connection.copy()
+
+    def connection_progress(self, **status):
+        with self.connection_lock:
+            self.connection = status
 
     def launch(self):
         self.thread = threading.Thread(target=self._work, name='vernier-bluetooth', daemon=True)
@@ -108,8 +119,13 @@ class Lab:
         device = self.devices[device_id]
         if not device.connected:
             try:
-                device.open()
-            except Exception:
+                if device.demo:
+                    device.open()
+                else:
+                    device.open(progress=lambda **status: self.connection_progress(device_id=device_id, **status))
+                    self.connection_progress(status='connected', device_id=device_id)
+            except Exception as exc:
+                self.connection_progress(status='failed', device_id=device_id, message=str(exc))
                 try:
                     device.close()
                 except Exception:

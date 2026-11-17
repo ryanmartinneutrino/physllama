@@ -4,17 +4,17 @@ A local web app for recording and exploring Vernier Go Direct Bluetooth sensors.
 
 ## Standalone installers (Windows and Mac)
 
-Download the installer for your computer from the public [v0.2.1 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.1). No GitHub account or sign-in is required.
+Download the installer for your computer from the public [v0.2.2 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.2). No GitHub account or sign-in is required.
 
 | Computer | Download |
 | --- | --- |
-| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.1-windows-x64-setup.exe` |
-| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.1-macos-arm64-installer.zip` |
-| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.1-macos-x64-installer.zip` |
+| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.2-windows-x64-setup.exe` |
+| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.2-macos-arm64-installer.zip` |
+| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.2-macos-x64-installer.zip` |
 
 These are **offline, self-contained packages**: Python, platform-specific dependencies, the app, and graphing assets are included. Students do not need Python, Node, Git, a terminal command, or an internet connection to run the installed app. The Mac install script opens Terminal to confirm installation; app launches after installation use the browser directly.
 
-**Release status:** unsigned preview installers, assembled on Linux from verified native runtimes and wheels. Their contents and application behavior are checked here, but installation, launch, Bluetooth permissions, and real-sensor acquisition still need testing on Windows and macOS. They are not signed or notarized; operating systems may display an unknown-publisher warning or block them. Distribute to a class only after testing the relevant target OS. A `.sha256` file accompanies each installer.
+**Release status:** unsigned installers. The user has successfully tested the v0.2.1 installers on Windows and Mac, including real Bluetooth connections; the Mac needed an explicit “Open Anyway” approval and sometimes took multiple connection attempts. Version 0.2.2 adds connection retries and clearer installation instructions. Automated tests and package integrity checks run on Linux; these new connection changes still need testing with physical sensors on each target OS. A `.sha256` file accompanies each installer.
 
 ### Windows
 
@@ -27,10 +27,13 @@ Uninstall through **Settings → Apps → Installed apps → Vernier Lab**, or `
 
 ### macOS
 
-1. Select the ZIP for your processor and extract it with Archive Utility.
-2. Double-click **Install Vernier Lab.command**, then type `y` and Return. The included installer copies **Vernier Lab.app** into `~/Applications`. Alternatively, drag the included `.app` to that folder yourself.
-3. Open **Vernier Lab** from Applications in your home folder. Allow Bluetooth access when prompted; it can also be managed in **System Settings → Privacy & Security → Bluetooth**.
-4. Export your measurements, then use **Quit app** in the browser header when finished. Closing the browser tab keeps the session alive.
+1. Choose the ZIP matching **Apple menu → About This Mac**: “Chip” means Apple Silicon; “Processor: Intel” means Intel. Extract it and open **START HERE - Mac.txt**.
+2. In Finder, drag **Vernier Lab.app** into **Applications** in your home folder (create that folder if needed). This avoids having to approve the optional installer script as well as the app. Alternatively, double-click **Install Vernier Lab.command**, then type `y` and Return to copy it automatically.
+3. Open the installed **Vernier Lab.app**. If macOS blocks it because its developer cannot be verified, dismiss the warning, open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** for Vernier Lab. Confirm **Open**, authenticating if asked. Try opening the app first so that this option appears. If using the optional `.command` installer, it may need the same approval separately.
+4. Allow Bluetooth access when prompted. If previously denied, check **System Settings → Privacy & Security → Bluetooth**, enable access for the app shown there, then quit and reopen Vernier Lab.
+5. Export your measurements, then use **Quit app** in the browser header when finished. Closing the browser tab keeps the session alive.
+
+Approve only the download you intended to install. There is no need to disable macOS security globally. These packages remain unsigned and unnotarized, so this first-launch approval is still necessary. See [Apple’s instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
 
 The installer never replaces an existing app silently. To update, quit Vernier Lab, move the previous `.app` to Trash, and run the new installer. To uninstall, quit and move the `.app` to Trash. Logs are in `~/Library/Logs/Vernier Lab/app.log`.
 
@@ -62,6 +65,12 @@ If you downloaded a ZIP, extract it and run `bash start.sh` in that directory.
 Enable Bluetooth in your desktop settings. Turn on the Go Direct sensor, click **Search for devices**, and connect it. Do not connect it to Graphical Analysis, LabQuest, or another app at the same time. Pairing through desktop settings is not normally required.
 
 If scanning fails, check `bluetoothctl show` and `rfkill list`. “No default controller available” or “No Bluetooth adapters found” means the OS cannot currently expose an adapter to this app. Try the laptop's Bluetooth settings or a supported USB BLE adapter. Do not run the app as root.
+
+## Bluetooth connection help
+
+Connecting shows progress and automatically makes up to three attempts after transient failures, with a short pause and a fresh connection between attempts. Each attempt has a 30-second budget, including sensor initialization, plus up to five seconds for cleanup. Permission errors or unavailable Bluetooth stop immediately so you can fix the settings. If cleanup fails, retries stop to avoid leaving multiple connections open.
+
+Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis, LabQuest, or other apps using it. After all attempts fail, check Bluetooth permissions, power-cycle the sensor, then search and connect again. On Mac, use **System Settings → Privacy & Security → Bluetooth**. The progress banner remains available while connecting, including after a page refresh. Existing recordings are preserved; a lost connection during collection stops the run and does not automatically restart it.
 
 ## Collect and explore
 
@@ -96,9 +105,9 @@ Data lives in the local service's memory. Refreshing or reopening the browser re
 
 ## Verification status
 
-The automated backend tests cover multi-device acquisition, units and filtered CSV, resume/reset, range/granularity/conflict checks, rollback after a failed Start, data preservation on disconnect, session limits, demo isolation, origin checks, and SDK packet parsing. Browser tests exercise the actual UI: device/channel controls, mixed-unit graphs, zoom/hover/fit, export, refresh recovery, reset, error messages, and a narrow viewport.
+The automated backend tests cover multi-device acquisition, units and filtered CSV, resume/reset, range/granularity/conflict checks, rollback after a failed Start, data preservation on disconnect, session limits, demo isolation, origin checks, SDK packet parsing, retry limits, partial-connection cleanup, timeouts, and connection progress while the Bluetooth worker is busy. Browser tests exercise the actual UI: device/channel controls, mixed-unit graphs, zoom/hover/fit, export, refresh recovery, reset, error messages, and a narrow viewport.
 
-**A real sensor has not yet been verified.** On the development computer Linux exposes `hci0`, but BlueZ reports “No default controller available” and Bleak reports “No Bluetooth adapters found.” The next step is a real-device smoke test on the Linux laptop:
+**Windows and Mac installers and Bluetooth connections have been user-tested with v0.2.1.** The development Linux computer still has no usable Bluetooth adapter. For v0.2.2, repeat this physical-device smoke test, especially the Mac connection retries:
 
 1. Search and connect the powered-on sensor; check its model, channel units, and battery reading.
 2. Record force and compatible acceleration channels at 50 ms for 10 seconds while gently moving the sensor.

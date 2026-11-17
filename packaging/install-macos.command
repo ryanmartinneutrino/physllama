@@ -24,5 +24,7 @@ if [[ -e "$destination" ]]; then
 fi
 /usr/bin/ditto "Vernier Lab.app" "$destination"
 echo "Installed: $destination"
+echo "If macOS blocks the app, try opening it, then use System Settings > Privacy & Security > Open Anyway."
+echo "See START HERE - Mac.txt in the download for step-by-step instructions."
 echo "Open Vernier Lab from Applications in your home folder. Allow Bluetooth when prompted."
 /usr/bin/open "$HOME/Applications"

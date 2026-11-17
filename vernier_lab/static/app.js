@@ -6,6 +6,14 @@ let state = {devices: [], series: [], recording: false, total_points: 0, period_
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
 let graphs = [];
+let connection = {status: 'idle'};
+let lastConnectionError = '';
+const connecting = () => ['connecting', 'retrying'].includes(connection.status);
+function renderConnection() {
+  $('#connection-progress').hidden = !connecting();
+  $('#connection-progress').textContent = connection.message || '';
+  renderControls(); renderDevices();
+}
 
 function saveLayout() {
   try { localStorage.setItem('vernier-layout', JSON.stringify({title: $('#experiment-title').value,
@@ -23,8 +31,13 @@ async function request(path, body) {
   return response.json();
 }
 async function action(path, body = {}) {
-  if (busy) return false;
-  busy = true; showNotice(); renderControls();
+  if (busy || connecting()) return false;
+  busy = true; showNotice();
+  if (path === 'connect') {
+    connection = {status: 'connecting', device_id: body.device_id, message: 'Starting Bluetooth connection…'};
+    renderConnection();
+  }
+  renderControls();
   try {
     const result = await request(path, body);
     applyState(result, false);
@@ -36,7 +49,9 @@ async function action(path, body = {}) {
     $('#period').value = state.period_ms;
     return false;
   } finally {
-    busy = false; renderControls(); renderDevices();
+    busy = false;
+    if (path === 'connect') { connection = {status: 'idle'}; renderConnection(); }
+    renderControls(); renderDevices();
   }
 }
 function availableChannels() {
@@ -93,16 +108,16 @@ function renderControls() {
   const channels = state.recording ? connected.reduce((sum, d) => sum + d.selected.length, 0)
     : Object.values(selectedConfiguration()).reduce((sum, numbers) => sum + numbers.length, 0);
   $('#device-count').textContent = connected.length;
-  $('#start').disabled = busy || offline || state.recording || !channels;
-  $('#stop').disabled = busy || offline || !state.recording;
-  $('#reset').disabled = busy || offline || state.recording || !state.total_points;
-  for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || offline || state.recording;
-  $('#export').disabled = busy || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
+  $('#start').disabled = busy || connecting() || offline || state.recording || !channels;
+  $('#stop').disabled = busy || connecting() || offline || !state.recording;
+  $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
+  for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
+  $('#export').disabled = busy || connecting() || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
   const options = new Map(graphChannelOptions().map(s => [s.id, s]));
   for (const graph of graphs) {
-    $('.graph-export', graph.node).disabled = busy || offline || !state.series.some(s => graph.selected.includes(s.id));
+    $('.graph-export', graph.node).disabled = busy || connecting() || offline || !state.series.some(s => graph.selected.includes(s.id));
     for (const checkbox of graph.node.querySelectorAll('[data-series]')) {
-      checkbox.disabled = busy || offline || !options.get(checkbox.dataset.series)?.canPlot;
+      checkbox.disabled = busy || connecting() || offline || !options.get(checkbox.dataset.series)?.canPlot;
     }
   }
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
@@ -110,21 +125,22 @@ function renderControls() {
   $('#channels').textContent = channels;
   $('#sample-rate').textContent = `${(1000 / state.period_ms).toLocaleString(undefined, {maximumFractionDigits: 2})} Hz`;
   if (document.activeElement !== $('#period')) $('#period').value = state.period_ms;
-  $('#status').textContent = offline ? 'Server unavailable' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
+  $('#status').textContent = offline ? 'Server unavailable' : connecting() ? 'Connecting…' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
   $('#status-dot').classList.toggle('recording', state.recording && !offline);
   $('#demo-banner').hidden = !state.devices.some(d => d.demo && d.connected) && !state.series.some(s => s.demo);
 }
 function renderDevices() {
-  const signature = JSON.stringify([state.devices, state.recording, busy, offline]);
+  const signature = JSON.stringify([state.devices, state.recording, busy, offline, connection]);
   if (signature === deviceSignature) return;
   deviceSignature = signature;
   $('#device-empty').hidden = state.devices.length > 0;
   $('#devices').innerHTML = state.devices.map(d => {
-    const disabled = busy || offline || state.recording ? 'disabled' : '';
+    const inProgress = connecting() && connection.device_id === d.id;
+    const disabled = busy || connecting() || offline || state.recording ? 'disabled' : '';
     return `<article class="device-card" data-device="${esc(d.id)}">
       <div class="device-head"><span class="device-icon" aria-hidden="true">${d.demo ? '∿' : 'ᛒ'}</span><h3>${esc(d.name)}${d.demo ? '<br><span class="demo-label">SIMULATED DEVICE</span>' : ''}</h3></div>
       <div class="device-meta">${d.demo ? 'Explore with generated measurements' : `${esc(d.id)}${d.rssi != null ? ` · ${d.rssi} dBm` : ''}`}</div>
-      <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled}>${d.connected ? 'Disconnect' : 'Connect'}</button></div>
+      <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled}>${inProgress ? (connection.status === 'retrying' ? 'Retrying…' : 'Connecting…') : d.connected ? 'Disconnect' : 'Connect'}</button></div>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
       ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · choose what to record in a graph’s Sensors dropdown.</p>` : ''}
     </article>`;
@@ -321,19 +337,29 @@ async function downloadCSV(selected, title) {
 $('#export').addEventListener('click', () => downloadCSV(graphs.flatMap(g => g.selected), $('#experiment-title').value));
 async function poll() {
   if (quitting) return;
-  if (!busy) {
-    try {
+  try {
+    // This endpoint stays responsive while Bluetooth owns the worker thread.
+    const progress = await request('connection-status');
+    if (quitting) return;
+    connection = progress;
+    if (connecting()) lastConnectionError = '';
+    if (progress.status === 'failed' && progress.message && progress.message !== lastConnectionError) {
+      showNotice(progress.message);
+      lastConnectionError = progress.message;
+    }
+    renderConnection();
+    if (!busy && !connecting()) {
       const next = await request(`state?after=${cursor}&generation=${encodeURIComponent(generation)}`);
       if (quitting) return;
       if (offline) { offline = false; showNotice('Reconnected to the local server.'); }
       applyState(next, true);
-    } catch {
-      if (quitting) return;
-      offline = true; renderControls(); renderDevices();
-      showNotice('The local server is unavailable. Keep this page open and restart the app to reconnect.');
     }
+  } catch {
+    if (quitting) return;
+    offline = true; renderControls(); renderDevices();
+    showNotice('The local server is unavailable. Keep this page open and restart the app to reconnect.');
   }
-  setTimeout(poll, 250);
+  setTimeout(poll, connecting() ? 500 : 250);
 }
 try {
   const saved = JSON.parse(localStorage.getItem('vernier-layout') || 'null');
