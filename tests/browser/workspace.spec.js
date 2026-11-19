@@ -14,12 +14,12 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await page.getByRole('button', {name: 'Add demo device'}).click();
   await expect(page.getByRole('heading', {name: 'Demo Motion & Force 1'})).toBeVisible();
   await expect(page.locator('#devices input[type="checkbox"]')).toHaveCount(0);
-  await expect(page.locator('#start')).toBeDisabled();
+  await expect(page.locator('#start')).toBeEnabled();
   const first = page.locator('.graph').first();
   await first.locator('summary').click();
   await first.locator('[data-series="demo-1/1"]').check();
   await first.locator('[data-series="demo-1/2"]').check();
-  await expect(page.locator('#channels')).toHaveText('2');
+  await expect(page.locator('#channels')).toHaveText('4');
   await page.getByRole('button', {name: 'Add demo device'}).click();
   await expect(page.locator('#device-count')).toHaveText('2');
   await first.locator('summary').click();
@@ -45,16 +45,16 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect(page.locator('#acquisition-llama')).toHaveClass(/running/);
   await expect(page.locator('.leg-front')).toHaveCSS('animation-name', 'llama-stride');
   const started = await (await page.request.get('/api/state')).json();
-  expect(started.devices.find(d => d.id === 'demo-1').selected).toEqual([1, 2]);
-  expect(started.devices.find(d => d.id === 'demo-2').selected).toEqual([1]);
+  expect(started.devices.find(d => d.id === 'demo-1').selected).toEqual([1, 2, 3, 4]);
+  expect(started.devices.find(d => d.id === 'demo-2').selected).toEqual([1, 2, 3, 4]);
   await expect(page.locator('#scan')).toBeDisabled();
   await expect.poll(async () => Number((await page.locator('#samples').innerText()).replaceAll(',', ''))).toBeGreaterThan(30);
   await second.locator('summary').click();
-  await expect(second.locator('[data-series="demo-1/3"]')).toBeDisabled();
+  await expect(second.locator('[data-series="demo-1/3"]')).toBeEnabled();
   await second.locator('[data-series="demo-1/2"]').uncheck();
   await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.length)).toBe(1);
   await expect(first.locator('[data-series="demo-1/2"]')).toBeChecked();
-  await expect(page.locator('#channels')).toHaveText('3');
+  await expect(page.locator('#channels')).toHaveText('8');
   await second.locator('[data-series="demo-1/2"]').check();
   await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
   await expect(page.locator('#status')).toHaveText('Collection stopped');
@@ -97,7 +97,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   expect(header.some(column => column.includes('Acceleration X [m/s²] (demo-1/2'))).toBe(true);
   expect(header.some(column => column.includes('Force [N] (demo-2/1'))).toBe(true);
   expect(rows.length).toBeGreaterThan(1);
-  expect(rows.every(row => row.length === 4 && row.every(value => value !== ''))).toBe(true);
+  expect(rows.every(row => row.length === 4)).toBe(true);
+  expect(rows.map(row => row.slice(0, 2))).toEqual(csv.trim().split(/\r?\n/).slice(1).map(row => row.split(',').slice(0, 2)));
   expect(Math.max(...rows.map(row => Number(row[1])))).toBeGreaterThan(.2);
   const samples = await page.locator('#samples').innerText();
   await page.reload();
@@ -368,4 +369,86 @@ test('disconnecting or removing a device clears graph inputs but preserves exper
   await page.locator('#add-graph').click();
   await expect(page.locator(`[data-series="${channel}"]`)).toHaveCount(0);
   await expect(page.locator('#export')).toBeEnabled();
+});
+
+test('collection records unplotted channels and unplotted devices; exports share all run timestamps', async ({page}) => {
+  await page.request.post('/api/stop', {data: {}});
+  await page.request.post('/api/reset', {data: {}});
+  const initial = await (await page.request.get('/api/state')).json();
+  for (const device of initial.devices.filter(d => d.connected)) {
+    await page.request.post('/api/disconnect', {data: {device_id: device.id}});
+  }
+  const devices = [];
+  for (let i = 0; i < 2; i++) {
+    const state = await (await page.request.post('/api/demo', {data: {}})).json();
+    devices.push(state.devices.at(-1));
+  }
+  await page.goto('/');
+  await expect(page.locator('#channels')).toHaveText('8');
+  await expect(page.locator('#start')).toBeEnabled();
+  const graph = page.locator('.graph').first();
+  await expect(graph.locator('.selection-count')).toHaveText('0 selected');
+  await page.locator('#start').click();
+  await expect.poll(async () => (await (await page.request.get('/api/state')).json()).total_points).toBeGreaterThan(16);
+  await page.locator('#stop').click();
+  const firstRun = await (await page.request.get('/api/state')).json();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${devices[0].id}/1"]`).check();
+  await page.locator('#start').click();
+  await expect.poll(async () => (await (await page.request.get('/api/state')).json()).total_points).toBeGreaterThan(firstRun.total_points + 16);
+  await page.locator('#stop').click();
+  const state = await (await page.request.get('/api/state')).json();
+  expect(state.series).toHaveLength(8);
+  for (const device of devices) {
+    expect(state.devices.find(d => d.id === device.id).selected).toEqual([1, 2, 3, 4]);
+    for (const sensor of device.sensors) {
+      expect([...new Set(state.points.filter(p => p.series === `${device.id}/${sensor.number}`).map(p => p.run))]).toEqual([1, 2]);
+    }
+  }
+  async function download(button) {
+    const promise = page.waitForEvent('download');
+    await button.click();
+    let text = '';
+    for await (const part of await (await promise).createReadStream()) text += part;
+    return text.trim().split(/\r?\n/).map(row => row.split(','));
+  }
+  const all = await download(page.locator('#export'));
+  const plotted = await download(graph.locator('.graph-export'));
+  expect(all[0]).toHaveLength(10);
+  for (const device of devices) for (const sensor of device.sensors) {
+    expect(all[0].some(column => column.includes(`${device.id}/${sensor.number};`))).toBe(true);
+  }
+  expect(plotted[0]).toHaveLength(3);
+  expect(plotted[0][2]).toContain(`${devices[0].id}/1;`);
+  const expectedTimes = [...new Set(state.points.map(p => JSON.stringify([p.run, p.t])))].map(s => JSON.parse(s))
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  expect(all.slice(1).map(row => row.slice(0, 2).map(Number))).toEqual(expectedTimes);
+  expect(plotted.slice(1).map(row => row.slice(0, 2))).toEqual(all.slice(1).map(row => row.slice(0, 2)));
+});
+
+test('recording includes compatible unplotted channels and explains exclusive alternatives', async ({page}) => {
+  const state = await (await page.request.get('/api/state')).json();
+  state.recording = false;
+  state.series = []; state.points = []; state.total_points = 0;
+  state.devices = [state.devices.find(d => d.connected)];
+  const device = state.devices[0];
+  device.sensors[0].excluded_channels = [2];
+  device.sensors[1].excluded_channels = [1];
+  device.sensors[2].supported = false;
+  await page.route('**/api/state?*', route => route.fulfill({json: state}));
+  let selections;
+  await page.route('**/api/start', route => {
+    selections = route.request().postDataJSON().selections;
+    return route.fulfill({json: state});
+  });
+  await page.goto('/');
+  await expect(page.locator('#channels')).toHaveText('2');
+  await expect(page.locator('#recording-note')).toContainText('Alternative channels not recorded');
+  await expect(page.locator('#recording-note')).toContainText('Acceleration X');
+  const graph = page.locator('.graph').first();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${device.id}/2"]`).check();
+  await expect(graph.locator(`[data-series="${device.id}/3"]`)).toBeDisabled();
+  await page.locator('#start').click();
+  await expect.poll(() => selections).toEqual({[device.id]: [2, 4]});
 });

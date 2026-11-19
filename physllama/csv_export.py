@@ -24,26 +24,20 @@ def wide_csv(series, points):
     selected = set(ids)
     writer.writerow(['run', 'time_s', *(channel_heading(s) for s in series)])
     runs = {}
+    timelines = {}
     for point in points:
+        # Both exports share the complete experiment timeline; filtering a
+        # graph changes its columns, never discards timestamps or whole runs.
+        timelines.setdefault(point['run'], set()).add(point['t'])
         if point['series'] in selected:
             value = point['value']
             value = value if value is not None and math.isfinite(value) else None
             runs.setdefault(point['run'], {}).setdefault(point['series'], {})[point['t']] = value
 
-    for run, channels in sorted(runs.items()):
+    for run, timeline in sorted(timelines.items()):
+        channels = runs.get(run, {})
         samples = {key: sorted(values.items()) for key, values in channels.items()}
-        times = sorted({t for values in samples.values() for t, _ in values})
-        bounds = []
-        for values in samples.values():
-            valid = [t for t, value in values if value is not None]
-            if valid:
-                bounds.append((valid[0], valid[-1]))
-        if bounds:
-            start, end = max(a for a, _ in bounds), min(b for _, b in bounds)
-            if start <= end:
-                times = [t for t in times if start <= t <= end]
-        # If channels never overlap, retain their samples with blanks. Likewise
-        # keep columns for channels absent from this run; never fabricate data.
+        times = sorted(timeline)
         cursors = {key: 0 for key in samples}
         for t in times:
             row = [run, t]

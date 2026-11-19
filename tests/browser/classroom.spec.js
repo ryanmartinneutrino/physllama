@@ -63,7 +63,13 @@ test('two groups record independently and a teammate rejoins the same experiment
     let csv = '';
     for await (const part of await (await exportPromise).createReadStream()) csv += part;
     expect(csv).toContain('Acceleration X [m/s²]');
-    expect(csv).not.toContain('Force [N]');
+    expect(csv).toContain('Force [N]');
+    const graphExport = b.waitForEvent('download');
+    await b.locator('.graph-export').first().click();
+    let graphCSV = '';
+    for await (const part of await (await graphExport).createReadStream()) graphCSV += part;
+    expect(graphCSV).toContain('Acceleration X [m/s²]');
+    expect(graphCSV).not.toContain('Force [N]');
     await b.screenshot({path: 'test-results/classroom-workspace.png', fullPage: true});
   } finally {
     for (const context of contexts) await context.close();

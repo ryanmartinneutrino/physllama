@@ -25,7 +25,7 @@ def rows(lab, selected=None):
     return parsed[0], [[None if v == '' else float(v) for v in row] for row in parsed[1:]]
 
 
-def test_mixed_rates_interpolate_at_union_of_actual_times_within_common_interval():
+def test_mixed_rates_keep_every_timestamp_and_interpolate_only_between_samples():
     lab = experiment({'a/1': {1: [(0, 0), (1, 10), (2, 20), (3, 30)]},
                       'b/1': {1: [(.5, 101), (2.5, 105)]}})
     before = copy.deepcopy(lab.points)
@@ -34,12 +34,12 @@ def test_mixed_rates_interpolate_at_union_of_actual_times_within_common_interval
     assert len(header) == 4
     assert 'a/1' in header[2] and 'b/1' in header[3]
     assert '123-456' in header[2] and 'Position [m]' in header[2]
-    assert data == [[1, .5, 5, 101], [1, 1, 10, 102], [1, 2, 20, 104], [1, 2.5, 25, 105]]
+    assert data == [[1, 0, 0, None], [1, .5, 5, 101], [1, 1, 10, 102], [1, 2, 20, 104], [1, 2.5, 25, 105], [1, 3, 30, None]]
     assert lab.points == before
-    # A graph with one channel gets that channel's full original time sequence.
+    # A graph export changes only the columns, keeping the same experiment times.
     header, data = rows(lab, ['a/1'])
     assert len(header) == 3
-    assert data == [[1, t, 10*t] for t in range(4)]
+    assert data == [[1, t, 10*t] for t in (0, .5, 1, 2, 2.5, 3)]
 
 
 def test_runs_never_interpolate_across_pauses_or_invent_absent_channels():
@@ -50,11 +50,11 @@ def test_runs_never_interpolate_across_pauses_or_invent_absent_channels():
                     [2, 10, 8, None], [2, 11, 10, None]]
 
 
-def test_missing_samples_are_not_bridged_and_initial_missing_derivative_is_trimmed():
+def test_missing_samples_are_not_bridged_and_initial_missing_derivative_keeps_its_row():
     lab = experiment({'a/1': {1: [(0, None), (1, 3), (2, None), (3, 7)]},
                       'b/1': {1: [(0, 0), (1, 1), (1.5, 1.5), (2, 2), (2.5, 2.5), (3, 3)]}})
     _, data = rows(lab)
-    assert data == [[1, 1, 3, 1], [1, 1.5, None, 1.5], [1, 2, None, 2],
+    assert data == [[1, 0, None, 0], [1, 1, 3, 1], [1, 1.5, None, 1.5], [1, 2, None, 2],
                     [1, 2.5, None, 2.5], [1, 3, 7, 3]]
 
 
@@ -62,7 +62,7 @@ def test_missing_samples_are_not_bridged_and_initial_missing_derivative_is_trimm
 def test_all_missing_channel_and_nonoverlap_retain_available_data(value):
     lab = experiment({'a/1': {1: [(0, value)]}, 'b/1': {1: [(2, 6), (3, 7)]}})
     _, data = rows(lab)
-    assert data == [[1, 2, None, 6], [1, 3, None, 7]]
+    assert data == [[1, 0, None, None], [1, 2, None, 6], [1, 3, None, 7]]
     lab.points[0]['value'] = 1
     _, data = rows(lab)
     assert data == [[1, 0, 1, None], [1, 2, None, 6], [1, 3, None, 7]]
@@ -77,3 +77,10 @@ def test_headers_are_unique_and_spreadsheet_safe_and_escaped():
     assert len(header) == len(set(header)) == 4
     assert all(h.startswith("'=SUM(1,2)") and 'Force, "raw"' in h for h in header[2:])
     assert data == [[1, 0, 2, 3]]
+
+
+def test_graph_export_keeps_rows_from_runs_with_only_other_channels():
+    lab = experiment({'a/1': {1: [(0, 2)]}, 'b/1': {2: [(10, 3), (11, 4)]}})
+    header, data = rows(lab, ['a/1'])
+    assert len(header) == 3
+    assert data == [[1, 0, 2], [2, 10, None], [2, 11, None]]

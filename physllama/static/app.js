@@ -76,10 +76,22 @@ function graphChannelOptions() {
     (!state.recording || s.active || state.series.some(recorded => recorded.id === s.id))}));
 }
 function colorFor(id) { return colors[Math.max(0, availableChannels().findIndex(s => s.id === id)) % colors.length]; }
-function selectedConfiguration() {
-  const selected = new Set(graphs.flatMap(graph => graph.selected));
-  return Object.fromEntries(state.devices.filter(d => d.connected).map(d => [d.id,
-    d.sensors.filter(s => s.supported && selected.has(`${d.id}/${s.number}`)).map(s => s.number)]));
+function recordingConfiguration() {
+  const plotted = new Set(graphs.flatMap(graph => graph.selected));
+  return Object.fromEntries(state.devices.filter(d => d.connected).map(device => {
+    const sensors = device.sensors.filter(s => s.supported);
+    // Record unplotted channels too. Some devices expose mutually exclusive
+    // ranges; prefer plotted ranges, then add every compatible channel.
+    // Conflicting plotted choices are still rejected by backend validation.
+    const chosen = sensors.filter(s => plotted.has(`${device.id}/${s.number}`));
+    for (const sensor of sensors) {
+      if (!chosen.includes(sensor) && chosen.every(other =>
+        !sensor.excluded_channels.includes(other.number) && !other.excluded_channels.includes(sensor.number))) {
+        chosen.push(sensor);
+      }
+    }
+    return [device.id, sensors.filter(s => chosen.includes(s)).map(s => s.number)];
+  }));
 }
 function applyState(next, withPoints) {
   state = next;
@@ -125,8 +137,14 @@ function applyState(next, withPoints) {
 }
 function renderControls() {
   const connected = state.devices.filter(d => d.connected);
+  const configuration = state.recording ? Object.fromEntries(connected.map(d => [d.id, d.selected])) : recordingConfiguration();
   const channels = state.recording ? connected.reduce((sum, d) => sum + d.selected.length, 0)
-    : Object.values(selectedConfiguration()).reduce((sum, numbers) => sum + numbers.length, 0);
+    : Object.values(configuration).reduce((sum, numbers) => sum + numbers.length, 0);
+  const omitted = connected.flatMap(d => d.sensors.filter(s => s.supported && !configuration[d.id].includes(s.number))
+    .map(s => `${d.name}: ${s.name}`));
+  $('#recording-note').textContent = omitted.length
+    ? `Recording all compatible channels. Alternative channels not recorded: ${omitted.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`
+    : 'All supported channels on connected devices are recorded. Graph selections only control what you plot and export from that graph.';
   $('#device-count').textContent = connected.length;
   $('#start').disabled = busy || connecting() || offline || state.recording || !channels;
   $('#stop').disabled = busy || connecting() || offline || !state.recording;
@@ -175,7 +193,7 @@ function renderDevices() {
       ${d.owned && !d.connected ? `<button class="text-button" data-device-action="disconnect" ${disabled}>Release device</button>` : ''}
       <button class="text-button rename-device" data-device-action="rename" ${disabled || (d.owned === false ? 'disabled' : '')}>Rename device</button>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
-      ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · choose what to record in a graph’s Sensors dropdown.</p>` : ''}
+      ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · recorded even when not plotted.</p>` : ''}
       ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
     </article>`;
   }).join('');
@@ -277,14 +295,14 @@ function renderSeriesPicker(graph) {
     ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to choose sensors for this graph.</p>';
   $('.sensor-dropdown > p', graph.node).textContent = state.recording
     ? 'Show or hide recorded data here. Stop collection before adding new sensors to record.'
-    : 'Checked sensors across all graphs will be recorded when you start. Each sensor is recorded once.';
+    : 'Choose what this graph displays. All supported compatible channels are recorded, including unchecked sensors.';
   updateSelectionCount(graph);
 }
 function updateSelectionCount(graph) {
   const count = availableChannels().filter(s => graph.selected.includes(s.id)).length;
   $('.selection-count', graph.node).textContent = `${count} selected`;
 }
-// Min/max bucket reduction keeps extrema visible; CSV always contains every value.
+// Min/max bucket reduction keeps extrema visible; CSV uses full-resolution data.
 function displayPoints(data) {
   if (data.length <= 4000) return data;
   const result = [data[0]], size = Math.ceil(data.length / 1800);
@@ -362,9 +380,9 @@ $('#scan').addEventListener('click', async () => {
   $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No supported devices found. Wake your device and try again.') : `Search unavailable. Check Bluetooth on ${multiMode ? 'the instructor’s' : 'this'} computer.`;
 });
 $('#demo').addEventListener('click', () => action('demo'));
-$('#start').addEventListener('click', () => action('start', {selections: selectedConfiguration(), period_ms: state.period_ms}));
+$('#start').addEventListener('click', () => action('start', {selections: recordingConfiguration(), period_ms: state.period_ms}));
 $('#stop').addEventListener('click', () => action('stop'));
-$('#period').addEventListener('change', () => action('configure', {selections: selectedConfiguration(), period_ms: Number($('#period').value)}));
+$('#period').addEventListener('change', () => action('configure', {selections: recordingConfiguration(), period_ms: Number($('#period').value)}));
 $('#reset').addEventListener('click', () => $('#reset-dialog').showModal());
 $('#confirm-reset').addEventListener('click', async () => { $('#reset-dialog').close(); await action('reset'); });
 $('#help-button').addEventListener('click', () => $('#help-dialog').showModal());

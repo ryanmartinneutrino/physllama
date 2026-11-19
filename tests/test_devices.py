@@ -109,7 +109,7 @@ def test_two_independent_families_share_acquisition_and_export(monkeypatch):
         assert len(columns) == 2
         assert '(a/101' in columns[0] and '(b/101' in columns[1]
         assert all('[m]' in column and 'DEMO' not in column for column in columns)
-        assert all(row[column] for row in rows for column in columns)
+        assert any(all(row[column] for column in columns) for row in rows)
         # Variable polling times are preserved, rather than invented 50 ms intervals.
         times = [float(r['time_s']) for r in rows]
         assert len(times) > 1
