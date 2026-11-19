@@ -323,3 +323,49 @@ test('experiment names persist and top export includes every recorded channel wh
   await page.reload();
   await expect(page.getByRole('textbox', {name: 'Experiment name', exact: true})).toHaveValue('Collision experiment');
 });
+
+test('disconnecting or removing a device clears graph inputs but preserves experiment export', async ({page}) => {
+  await page.request.post('/api/stop', {data: {}});
+  await page.request.post('/api/reset', {data: {}});
+  const added = await (await page.request.post('/api/demo', {data: {}})).json();
+  const device = added.devices.at(-1);
+  const channel = `${device.id}/1`;
+  await page.request.post('/api/start', {data: {selections: {[device.id]: [1]}, period_ms: 10}});
+  await expect.poll(async () => (await (await page.request.get('/api/state')).json()).total_points).toBeGreaterThan(2);
+  await page.request.post('/api/stop', {data: {}});
+  await page.goto('/');
+  const graph = page.locator('.graph').first();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${channel}"]`).check();
+  await expect(graph.locator('.selection-count')).toHaveText('1 selected');
+  await page.locator(`.device-card[data-device="${device.id}"]`).getByRole('button', {name: 'Disconnect', exact: true}).click();
+  await expect(page.locator(`[data-series="${channel}"]`)).toHaveCount(0);
+  await expect(graph.locator('.selection-count')).toHaveText('0 selected');
+  await expect(graph.locator('.graph-export')).toBeDisabled();
+  await expect.poll(() => graph.locator('.plot').evaluate(el => el.data?.length)).toBe(0);
+  await expect(page.locator('#export')).toBeEnabled();
+  const downloadPromise = page.waitForEvent('download');
+  await page.locator('#export').click();
+  let csv = '';
+  for await (const part of await (await downloadPromise).createReadStream()) csv += part;
+  expect(csv).toContain(channel);
+  expect(csv.trim().split(/\r?\n/).length).toBeGreaterThan(2);
+  await page.reload();
+  await expect(page.locator(`[data-series="${channel}"]`)).toHaveCount(0);
+  await page.locator(`.device-card[data-device="${device.id}"]`).getByRole('button', {name: 'Connect', exact: true}).click();
+  await expect(graph.locator(`[data-series="${channel}"]`)).not.toBeChecked();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${channel}"]`).check();
+  // A rescan or classroom release can remove the entire device from the state.
+  await page.route('**/api/state?*', async route => {
+    const response = await route.fetch();
+    const state = await response.json();
+    state.devices = state.devices.filter(d => d.id !== device.id);
+    await route.fulfill({response, json: state});
+  });
+  await expect(page.locator(`[data-series="${channel}"]`)).toHaveCount(0);
+  await expect(graph.locator('.selection-count')).toHaveText('0 selected');
+  await page.locator('#add-graph').click();
+  await expect(page.locator(`[data-series="${channel}"]`)).toHaveCount(0);
+  await expect(page.locator('#export')).toBeEnabled();
+});

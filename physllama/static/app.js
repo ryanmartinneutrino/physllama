@@ -60,7 +60,7 @@ async function action(path, body = {}) {
   }
 }
 function availableChannels() {
-  const result = new Map(state.series.map(s => [s.id, s]));
+  const result = new Map();
   for (const device of state.devices) {
     if (!device.connected) continue;
     for (const sensor of device.sensors) {
@@ -83,6 +83,18 @@ function selectedConfiguration() {
 }
 function applyState(next, withPoints) {
   state = next;
+  // Recorded history remains exportable, but only connected devices are graph inputs.
+  const available = new Set(availableChannels().map(s => s.id));
+  let selectionChanged = false;
+  for (const graph of graphs) {
+    const selected = graph.selected.filter(id => available.has(id));
+    if (selected.length !== graph.selected.length) {
+      graph.selected = selected;
+      graph.dirty = true;
+      selectionChanged = true;
+    }
+  }
+  if (selectionChanged) saveLayout();
   if (next.experiment_name && document.activeElement !== $('#experiment-title')) {
     $('#experiment-title').value = next.experiment_name;
   }
