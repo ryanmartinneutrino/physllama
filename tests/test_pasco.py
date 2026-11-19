@@ -284,3 +284,75 @@ def test_each_sensor_request_gets_the_source_apps_full_timeout(wire, monkeypatch
         device.stop()
     finally:
         device.close()
+
+
+def test_go_direct_retry_after_pasco_connection_preserves_pasco_and_exact_device_id(wire, monkeypatch):
+    from bleak.exc import BleakDeviceNotFoundError
+    from physllama.devices.godirect import GoDirectDevice
+
+    pasco = PascoDevice(*scanned())
+    stale = SimpleNamespace(address='go-direct-selected', name='GDX-CART')
+    fresh = SimpleNamespace(address=stale.address, name=stale.name)
+    clients, scans = [], []
+
+    class Scanner:
+        def __init__(self, detection_callback):
+            self.callback, self.active = detection_callback, False
+            scans.append(self)
+        async def __aenter__(self):
+            self.active = True
+            assert pasco.connected
+            self.callback(SimpleNamespace(address='other-workbench'), None)
+            self.callback(fresh, None)
+            return self
+        async def __aexit__(self, *args):
+            self.active = False
+
+    class Client:
+        def __init__(self, target):
+            self.target, self.is_connected = target, False
+            clients.append(self)
+        async def connect(self):
+            assert pasco.connected
+            if self.target is stale:
+                raise BleakDeviceNotFoundError(stale.address, 'Device not found')
+            assert self.target is fresh and scans[-1].active
+            self.is_connected = True
+        async def start_notify(self, *args):
+            pass
+        async def disconnect(self):
+            self.is_connected = False
+
+    class Registry:
+        def families(self):
+            return [{'id': 'go-direct', 'label': 'Go Direct'}, {'id': 'pasco', 'label': 'PASCO'}]
+        def scan(self, loop):
+            return [pasco, GoDirectDevice(stale.address, stale.name, -40, stale)]
+
+    def open_metadata(device):
+        assert device.raw._connect()
+        device.sensors = [dict(number=1, name='Position', unit='m', minimum_ms=10,
+                               maximum_ms=10000, step_ms=0, excluded_channels=[], supported=True)]
+    monkeypatch.setattr('physllama.devices.godirect.BleakClient', Client)
+    monkeypatch.setattr('physllama.devices.godirect.BleakScanner', Scanner)
+    monkeypatch.setattr(GoDirectDevice, '_open_once', open_metadata)
+    monkeypatch.setattr(GoDirectDevice, 'RETRY_DELAY', 0)
+    lab = Lab(Registry())
+    with TestClient(create_app(lab)) as client:
+        assert client.post('/api/scan').status_code == 200
+        assert client.post('/api/connect', json={'device_id': pasco.id}).status_code == 200
+        pasco_client = wire.instances[0]
+        # Match the reported sequence: PASCO connected, search, connect Go Direct.
+        assert client.post('/api/scan').status_code == 200
+        response = client.post('/api/connect', json={'device_id': stale.address})
+        assert response.status_code == 200, response.text
+        assert all(d['connected'] for d in response.json()['devices'])
+        assert [c.target for c in clients] == [stale, fresh]
+        assert pasco.raw._client is pasco_client
+        assert pasco_client.is_connected and not pasco_client.disconnected
+        assert client.post('/api/start', json={'selections': {pasco.id: [3001]}, 'period_ms': 50}).status_code == 200
+        wait_for(lambda: client.get('/api/state').json()['total_points'] > 1)
+        assert client.post('/api/stop').status_code == 200
+        assert pasco_client.is_connected
+    assert pasco_client.disconnected  # Released only by shutdown.
+    assert all(not scan.active for scan in scans)

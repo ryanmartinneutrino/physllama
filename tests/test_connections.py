@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from bleak.exc import BleakDeviceNotFoundError
 
 from physllama.acquisition import Lab
 from physllama.devices.godirect import CompatibleBLEDevice, GoDirectDevice
@@ -197,11 +198,99 @@ def test_corebluetooth_group_worker_resolves_same_uuid_when_scan_loop_differs(lo
     raw = CompatibleBLEDevice(None)
     raw.id = 'selected-mac-uuid'
     scanned = SimpleNamespace(details=(object(), SimpleNamespace(event_loop=object())))
+    resolved = SimpleNamespace(address=raw.id, details=(object(), SimpleNamespace(event_loop=loop)))
+    class Scanner:
+        def __init__(self, detection_callback):
+            self.callback = detection_callback
+        async def __aenter__(self):
+            assert asyncio.get_running_loop() is loop
+            self.callback(resolved, None)
+            return self
+        async def __aexit__(self, *args):
+            pass
+    monkeypatch.setattr(adapter, 'BleakScanner', Scanner)
     raw.discovered_device = scanned
     assert raw._connect()
-    assert targets == ['selected-mac-uuid']
+    assert targets == [resolved]
+    assert raw.discovered_device is resolved
     loop.run_until_complete(raw._device.disconnect())
+    raw.discovered_device = scanned
     scanned.details[1].event_loop = loop
     assert raw._connect()
     assert targets[-1] is scanned
     loop.run_until_complete(raw._device.disconnect())
+
+
+def test_retry_refreshes_exact_device_and_keeps_scan_alive_until_connected(loop, monkeypatch):
+    import physllama.devices.godirect as adapter
+    stale = SimpleNamespace(address='AA:BB:CC:DD:EE:01')
+    fresh = SimpleNamespace(address=stale.address.lower())
+    wrong = SimpleNamespace(address='AA:BB:CC:DD:EE:02')
+    scans, clients = [], []
+    class Scanner:
+        def __init__(self, detection_callback):
+            self.callback, self.active = detection_callback, False
+            scans.append(self)
+        async def __aenter__(self):
+            self.active = True
+            assert asyncio.get_running_loop() is loop
+            self.callback(wrong, SimpleNamespace(local_name='GDX-CART same name'))
+            self.callback(fresh, SimpleNamespace(local_name='GDX-CART same name'))
+            return self
+        async def __aexit__(self, *args):
+            self.active = False
+    class Client(FakeClient):
+        def __init__(self, target):
+            super().__init__(target)
+            clients.append(self)
+        async def connect(self):
+            if self.target is stale:
+                raise BleakDeviceNotFoundError(stale.address, 'Device not found')
+            assert self.target is fresh
+            assert scans[-1].active
+            await super().connect()
+        async def start_notify(self, *args):
+            assert scans[-1].active
+    monkeypatch.setattr(adapter, 'BleakClient', Client)
+    monkeypatch.setattr(adapter, 'BleakScanner', Scanner)
+    monkeypatch.setattr(GoDirectDevice, 'RETRY_DELAY', 0)
+    device = GoDirectDevice(stale.address, 'GDX-CART same name', -40, stale)
+    monkeypatch.setattr(device, '_open_once', lambda: device.raw._connect())
+    try:
+        device.open()
+        assert device.connected
+        assert [client.target for client in clients] == [stale, fresh]
+        assert clients[0].disconnected
+        assert len(scans) == 1 and not scans[0].active
+        assert device.discovered_device is fresh
+    finally:
+        device.close()
+
+
+def test_missing_device_recovery_is_bounded_and_does_not_blame_disabled_bluetooth(loop, monkeypatch):
+    import physllama.devices.godirect as adapter
+    scans = []
+    class Scanner:
+        def __init__(self, detection_callback):
+            self.active = False
+            scans.append(self)
+        async def __aenter__(self):
+            self.active = True
+            return self
+        async def __aexit__(self, *args):
+            self.active = False
+    class MissingClient(FakeClient):
+        async def connect(self):
+            raise BleakDeviceNotFoundError('selected-id', 'Device not found')
+    monkeypatch.setattr(adapter, 'BleakClient', MissingClient)
+    monkeypatch.setattr(adapter, 'BleakScanner', Scanner)
+    monkeypatch.setattr(GoDirectDevice, 'ATTEMPT_TIMEOUT', .03)
+    monkeypatch.setattr(GoDirectDevice, 'RETRY_DELAY', 0)
+    device = GoDirectDevice('selected-id', 'GDX-CART', -40, object())
+    with pytest.raises(RuntimeError) as error:
+        device.open()
+    assert 'after 3 attempt' in str(error.value)
+    assert 'selected-id' in str(error.value)
+    assert 'Turn on Bluetooth' not in str(error.value)
+    assert len(scans) == 2 and all(not scan.active for scan in scans)
+    assert not device.connected

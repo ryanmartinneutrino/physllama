@@ -1,18 +1,20 @@
 """Go Direct protocol adapter; all calls stay on one thread."""
 import asyncio
+import logging
 import queue
 import struct
 import sys
 import time
 
-from bleak import BleakClient
-from bleak.exc import BleakBluetoothNotAvailableError
+from bleak import BleakClient, BleakScanner
+from bleak.exc import BleakBluetoothNotAvailableError, BleakDeviceNotFoundError
 from godirect.device_bleak import GoDirectDeviceBleak
 
 
 class CompatibleBLEDevice(GoDirectDeviceBleak):
     connection_deadline = None
     discovered_device = None
+    refresh_discovery = False
 
     def _timeout(self, limit):
         if self.connection_deadline is None:
@@ -27,16 +29,41 @@ class CompatibleBLEDevice(GoDirectDeviceBleak):
         # can interfere with existing connections (and CoreBluetooth on Macs).
         timeout = self._timeout(20)
         target = self.discovered_device or self.id
+        refresh = self.refresh_discovery
         if sys.platform == 'darwin' and self.discovered_device is not None:
             # Classroom discovery belongs to a different worker. CoreBluetooth
             # delegates retain their original loop, so resolve the same UUID on
             # this group's loop when ownership has changed.
             details = self.discovered_device.details
             if details[1].event_loop is not self._loop:
-                target = self.id
-        self._device = BleakClient(target)
-        self._loop.run_until_complete(asyncio.wait_for(self._async_connect(), timeout))
+                refresh = True
+        self._loop.run_until_complete(asyncio.wait_for(self._connect_target(target, refresh), timeout))
         return self._device.is_connected
+
+    async def _connect_target(self, target, refresh):
+        if not refresh:
+            self._device = BleakClient(target)
+            await self._async_connect()
+            return
+        # Each OS keeps native handles in a BLEDevice. Reusing a stale handle
+        # for every retry cannot recover. Resolve only the selected transport ID
+        # on this worker's loop, never a name or the first nearby Go Direct cart.
+        found = asyncio.get_running_loop().create_future()
+        def discovered(device, advertisement):
+            if device.address.casefold() == self.id.casefold() and not found.done():
+                found.set_result(device)
+        async with BleakScanner(detection_callback=discovered):
+            try:
+                target = await asyncio.wait_for(found, self._timeout(8))
+            except asyncio.TimeoutError as exc:
+                raise BleakDeviceNotFoundError(self.id,
+                    f'The selected Bluetooth ID {self.id} was not found during connection recovery') from exc
+            self.discovered_device = target
+            self._device = BleakClient(target)
+            # BlueZ can remove an unconnected device when discovery stops.
+            # Keep this scan alive through connection/notification setup; it
+            # neither disconnects nor resets any other device or adapter.
+            await self._async_connect()
 
     async def _async_write(self, uuid, data_to_write, wait_for_response):
         timeout = self._timeout(5)
@@ -151,15 +178,19 @@ class GoDirectDevice:
         self.close()
         for attempt in range(1, self.ATTEMPTS + 1):
             self._new_client()
+            self.raw.refresh_discovery = attempt > 1
             self.raw.connection_deadline = time.monotonic() + self.ATTEMPT_TIMEOUT
             report(status='connecting', attempt=attempt, max_attempts=self.ATTEMPTS,
                    message=f'Connecting to {self.name} — attempt {attempt} of {self.ATTEMPTS}. Keep the sensor awake and nearby.')
             try:
                 self._open_once()
                 self.ready = True
+                self.discovered_device = self.raw.discovered_device
                 self.raw.connection_deadline = None
                 return
             except Exception as exc:
+                logging.getLogger(__name__).warning('Go Direct connection to %s failed (attempt %s/%s): %s',
+                    self.id, attempt, self.ATTEMPTS, str(exc) or type(exc).__name__, exc_info=True)
                 try:
                     self.close()
                 except Exception as cleanup:
@@ -168,10 +199,16 @@ class GoDirectDevice:
                 reason = str(exc) or type(exc).__name__
                 permanent = isinstance(exc, (BleakBluetoothNotAvailableError, PermissionError))
                 if permanent or attempt == self.ATTEMPTS:
+                    advice = ('Turn on Bluetooth and check its adapter or permissions. '
+                              if isinstance(exc, BleakBluetoothNotAvailableError) else
+                              'Allow Bluetooth access in system privacy settings. '
+                              if isinstance(exc, PermissionError) else
+                              f'Wake the sensor with Bluetooth ID {self.id}, keep it nearby, '
+                              'and close other apps connected to that sensor. ')
                     raise RuntimeError(
                         f'Could not connect to {self.name} after {attempt} attempt(s): {reason}. '
-                        'Turn on Bluetooth, wake the sensor, and close other sensor apps. '
-                        'On Mac, check System Settings → Privacy & Security → Bluetooth. '
+                        + advice +
+                        'On Mac, Bluetooth permissions are in System Settings → Privacy & Security → Bluetooth. '
                         'Then search again and reconnect. Your recorded data is preserved.') from exc
                 report(status='retrying', attempt=attempt, max_attempts=self.ATTEMPTS,
                        message=f'{self.name}: connection interrupted. Retrying in {attempt} second(s) '

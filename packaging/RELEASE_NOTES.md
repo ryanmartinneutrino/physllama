@@ -10,6 +10,8 @@ Experiments can be named. Collection records all supported compatible channels o
 
 PASCO Start now explicitly uses the original cart app’s write-without-response behavior despite Bleak’s changed default, accepts measurement replies on the main service, and uses a separate timeout per sensor request. This fix has automated regression coverage and a user has confirmed successful acquisition with a physical Smart Cart. Other models and target operating systems still need hardware testing.
 
+Go Direct retries refresh the exact selected device’s discovery handle and keep the recovery scan active through connection setup. This addresses stale-handle failures when connecting after another device, without resetting the adapter or disconnecting PASCO. Device-not-found errors no longer assume Bluetooth is disabled. Regression coverage includes a connected PASCO cart and nearby Go Direct devices with other IDs; physical mixed-device retesting is still needed.
+
 The GitHub repository is now `ryanmartinneutrino/physllama`.
 
 Existing browser graph layouts are recovered from the previous storage key. Installation paths and app identifiers change; export and quit an older installation before launching PhysLlama. This source update does not replace or remove older installations.
