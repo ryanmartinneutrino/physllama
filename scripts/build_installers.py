@@ -21,7 +21,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / 'packaging/runtimes.json').read_text())
-VERSION = '0.2.2'
+VERSION = json.loads((ROOT / 'package.json').read_text())['version']
 
 
 def download_runtime(target, cache):
@@ -64,7 +64,7 @@ def prepare_payload(target, payload, archive, uv):
                     '-r', str(ROOT / f'packaging/requirements-{target}.lock.txt')], check=True)
     app = payload / 'app'
     app.mkdir()
-    shutil.copytree(ROOT / 'vernier_lab', app / 'vernier_lab', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    shutil.copytree(ROOT / 'physllama', app / 'physllama', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     for filename in ('desktop.py', 'run.py', 'requirements.txt', 'README.md', 'THIRD_PARTY_NOTICES.md'):
         shutil.copy2(ROOT / filename, app / filename)
     for filename in ('README.md', 'THIRD_PARTY_NOTICES.md'):
@@ -80,29 +80,29 @@ def prepare_payload(target, payload, archive, uv):
 
 
 def make_mac(target, workspace, runtime, uv, output):
-    distribution = workspace / f'Vernier Lab {VERSION}'
-    bundle = distribution / 'Vernier Lab.app'
+    distribution = workspace / f'PhysLlama {VERSION}'
+    bundle = distribution / 'PhysLlama.app'
     resources = bundle / 'Contents/Resources'
     prepare_payload(target, resources, runtime, uv)
     macos = bundle / 'Contents/MacOS'
     macos.mkdir(parents=True)
-    launcher = macos / 'VernierLab'
+    launcher = macos / 'PhysLlama'
     launcher.write_text('#!/bin/sh\nset -eu\nresources="$(CDPATH= cd -- "$(dirname -- "$0")/../Resources" && pwd)"\nexec "$resources/python/bin/python3" -I "$resources/app/desktop.py"\n')
     launcher.chmod(0o755)
-    info = {'CFBundleName': 'Vernier Lab', 'CFBundleDisplayName': 'Vernier Lab',
-            'CFBundleIdentifier': 'org.vernierlab.desktop', 'CFBundleVersion': VERSION,
+    info = {'CFBundleName': 'PhysLlama', 'CFBundleDisplayName': 'PhysLlama',
+            'CFBundleIdentifier': 'org.physllama.desktop', 'CFBundleVersion': VERSION,
             'CFBundleShortVersionString': VERSION, 'CFBundlePackageType': 'APPL',
-            'CFBundleExecutable': 'VernierLab', 'LSMinimumSystemVersion': '13.0',
-            'NSBluetoothAlwaysUsageDescription': 'Vernier Lab connects to Go Direct sensors to record your experiment.',
-            'NSBluetoothPeripheralUsageDescription': 'Vernier Lab connects to Go Direct sensors to record your experiment.'}
+            'CFBundleExecutable': 'PhysLlama', 'LSMinimumSystemVersion': '13.0',
+            'NSBluetoothAlwaysUsageDescription': 'PhysLlama connects to supported Bluetooth devices to record your experiment.',
+            'NSBluetoothPeripheralUsageDescription': 'PhysLlama connects to supported Bluetooth devices to record your experiment.'}
     with (bundle / 'Contents/Info.plist').open('wb') as f:
         plistlib.dump(info, f)
-    installer = distribution / 'Install Vernier Lab.command'
+    installer = distribution / 'Install PhysLlama.command'
     installer.write_text((ROOT / 'packaging/install-macos.command').read_text().replace('@ARCH@', 'arm64' if target.endswith('arm64') else 'x86_64'))
     installer.chmod(0o755)
     shutil.copy2(ROOT / 'README.md', distribution / 'README.md')
     shutil.copy2(ROOT / 'packaging/START HERE - Mac.txt', distribution / 'START HERE - Mac.txt')
-    destination = output / f'VernierLab-{VERSION}-{target}-installer.zip'
+    destination = output / f'PhysLlama-{VERSION}-{target}-installer.zip'
     zip_tree(distribution, destination)
     return destination
 
@@ -110,7 +110,7 @@ def make_mac(target, workspace, runtime, uv, output):
 def make_windows(workspace, runtime, uv, output, makensis):
     payload = workspace / 'payload'
     prepare_payload('windows-x64', payload, runtime, uv)
-    destination = output / f'VernierLab-{VERSION}-windows-x64-setup.exe'
+    destination = output / f'PhysLlama-{VERSION}-windows-x64-setup.exe'
     prefix = '/' if sys.platform == 'win32' else '-'
     subprocess.run([makensis, f'{prefix}DVERSION={VERSION}', f'{prefix}DPAYLOAD={payload}',
                     f'{prefix}DOUTPUT={destination}', str(ROOT / 'packaging/windows.nsi')], check=True)

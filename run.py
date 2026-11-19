@@ -17,14 +17,14 @@ def listening_port(value):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Vernier Lab — local Bluetooth data collection')
+    parser = argparse.ArgumentParser(description='PhysLlama — local Bluetooth data collection')
     parser.add_argument('--server', action='store_true',
                         help='Listen on 0.0.0.0 for network access; do not open a browser.')
     parser.add_argument('--port', type=listening_port, default=8765,
                         help='Listening port (default: 8765).')
     parser.add_argument('--no-browser', action='store_true', help='Do not open a browser on startup.')
     args = parser.parse_args(argv)
-    from vernier_lab.server import create_app
+    from physllama.server import create_app
 
     if not args.no_browser and not args.server:
         threading.Timer(1.5, webbrowser.open, args=(f'http://127.0.0.1:{args.port}',)).start()

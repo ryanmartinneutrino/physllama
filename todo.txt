@@ -1,4 +1,4 @@
-We are going to create a web app to run on a computer and connect, via bluetooth, to a "Go Direct" sensor from Vernier. It's a small box with a few sensors (accelerometer, force). It says that it works with LabQuest2 and LabQuest3.
+PhysLlama is a local web app for connecting to supported Bluetooth science devices. The first supported family is Go Direct. It's a small box with a few sensors (accelerometer, force). It says that it works with LabQuest2 and LabQuest3.
 
 The website that we're building should show a list of available devices (there is currently only 1 and it's on, try to find it), and the user should have an option to search/connect/disconnect to a device. The web page should allow additional devices to be connected. 
 

@@ -17,17 +17,23 @@ def verify_manifest(manifest, read):
         actual = hashlib.sha256(read(filename)).hexdigest()
         if actual != expected:
             raise RuntimeError(f'Payload checksum mismatch: {filename}')
-    for filename in ('app/desktop.py', 'app/vernier_lab/server.py', 'app/vernier_lab/static/app.js'):
+    for filename in ('app/desktop.py', 'app/physllama/server.py', 'app/physllama/static/app.js',
+                     'app/physllama/devices/pasco.py', 'app/physllama/names.py',
+                     'app/physllama/vendor/pasco/pasco_ble_device.py',
+                     'app/physllama/vendor/pasco/datasheets.py',
+                     'app/physllama/vendor/pasco/LICENSE',
+                     'app/physllama/vendor/pasco/PROVENANCE.json'):
         assert filename in manifest['files'], filename
     assert any('godirect/device.py' in filename for filename in manifest['files'])
     assert any('pydantic_core' in filename for filename in manifest['files'])
-    assert 'Download CSV' in read('app/vernier_lab/static/app.js').decode()
+    assert 'Download CSV' in read('app/physllama/static/app.js').decode()
     assert manifest['source_commit'] == subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(), 'Rebuild installers after committing source changes.'
     print(f"  {manifest['target']}: verified {len(manifest['files'])} payload files")
 
 
 def main():
-    artifacts = sorted((ROOT / 'dist').glob('VernierLab-0.2.2-*'))
+    version = json.loads((ROOT / 'package.json').read_text())['version']
+    artifacts = sorted((ROOT / 'dist').glob(f'PhysLlama-{version}-*'))
     artifacts = [p for p in artifacts if p.suffix in ('.exe', '.zip')]
     assert len(artifacts) == 3, 'Expected Windows setup and both Mac installer ZIPs.'
     for artifact in artifacts:
@@ -38,13 +44,13 @@ def main():
             with zipfile.ZipFile(artifact) as archive:
                 assert archive.testzip() is None
                 assert 'Open Anyway' in archive.read('START HERE - Mac.txt').decode()
-                prefix = 'Vernier Lab.app/Contents/Resources/'
+                prefix = 'PhysLlama.app/Contents/Resources/'
                 manifest = json.loads(archive.read(prefix + 'BUILD-MANIFEST.json'))
                 verify_manifest(manifest, lambda path: archive.read(prefix + path))
-                info = plistlib.loads(archive.read('Vernier Lab.app/Contents/Info.plist'))
+                info = plistlib.loads(archive.read('PhysLlama.app/Contents/Info.plist'))
                 assert info['NSBluetoothAlwaysUsageDescription']
-                assert archive.getinfo('Install Vernier Lab.command').external_attr >> 16 & 0o111
-                assert archive.getinfo('Vernier Lab.app/Contents/MacOS/VernierLab').external_attr >> 16 & 0o111
+                assert archive.getinfo('Install PhysLlama.command').external_attr >> 16 & 0o111
+                assert archive.getinfo('PhysLlama.app/Contents/MacOS/PhysLlama').external_attr >> 16 & 0o111
                 executable = archive.read(prefix + 'python/bin/python3.12')
                 assert executable[:4] in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe'), 'Expected Mach-O Python executable.'
                 assert any('/objc/_objc.' in name for name in archive.namelist())

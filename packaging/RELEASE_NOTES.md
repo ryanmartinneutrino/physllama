@@ -1,11 +1,11 @@
-Vernier Lab 0.2.2 preview
+PhysLlama 0.3.0 preview — source update, installers pending
 
-Bluetooth connections now use the device information found during scanning, avoiding an unnecessary second discovery. Transient failures trigger up to three connection attempts, with visible progress, deadlines, and cleanup between attempts. Permission errors stop with instructions for fixing access. The sensor response timeout now waits for the intended duration instead of expiring early.
+Renames the app, Python package, exports, desktop launchers and installer templates to PhysLlama. A cartoon scientist llama appears in the logo; the collection mascot runs while acquisition is active and stands still after Stop or an error. Reduced-motion preferences are respected.
 
-The Mac download includes START HERE - Mac.txt with drag-to-install instructions, the System Settings > Privacy & Security > Open Anyway steps, and Bluetooth permission help. The README includes the same guidance and connection troubleshooting.
+Bluetooth discovery now uses a shared scan and a registry of supported device families. The Go Direct adapter retains the existing connection retries, deadlines, cleanup and protocol fixes. Devices expose common channel metadata and acquisition methods, including timestamped PASCO polling. The PASCO adapter reuses the existing Smart Cart app’s worker, timeout, battery and measurement logic, removes hard-coded cart serials, and supports ordinary wireless sensors recognized by its pinned SDK. Cart position is zeroed each run, with derived velocity/speed. Control/code nodes and plugin hubs are excluded.
 
-Download the Windows x64 setup executable or the Mac ZIP matching your processor (Apple Silicon or Intel). All packages include Python, dependencies, and browser assets for offline use. Each installer has a SHA-256 checksum file. Export your measurements and quit the old app before updating.
+Device display names can be saved and changed without altering Bluetooth identity. Scan results always retain the advertised name, transport ID and available printed PASCO serial; exports include the original identity alongside nicknames. Names persist in a local settings file and are shared by connected browsers. Server mode continues to share one experiment; independent student workspaces are documented as future work.
 
-Validation: 19 backend tests and 4 browser tests pass, including simulated connection failures, retries, cleanup, timeouts, live progress, and preservation of recorded data. Installer integrity checks verify payload hashes and native runtime formats. The previous v0.2.1 installers and Bluetooth connections were successfully user-tested on Windows and Mac; the new connection changes still need physical-device testing on those platforms.
+Existing browser graph layouts are recovered from the previous storage key. Installation paths and app identifiers change; export and quit an older installation before launching PhysLlama. This source update does not replace or remove older installations.
 
-Installers remain unsigned and unnotarized, so operating-system approval prompts still apply. GitHub Actions remains disabled. Source is included with the bundles and in the release source archive.
+Backend and browser tests cover discovery, acquisition, export and recording state. Rebuild installers from a clean committed checkout and repeat installation and physical Bluetooth tests on Windows and both Mac architectures before release. Packages remain unsigned and unnotarized.

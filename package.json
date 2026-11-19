@@ -1,6 +1,6 @@
 {
-  "name": "vernier-lab",
-  "version": "0.2.2",
+  "name": "physllama",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "vendor": "node scripts/vendor.mjs",

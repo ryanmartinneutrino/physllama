@@ -5,6 +5,9 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('Ready to connect');
+  await expect(page).toHaveTitle(/PhysLlama/);
+  await expect(page.locator('#supported-devices')).toHaveText('Supported: Go Direct, PASCO wireless sensors');
+  await expect(page.locator('#acquisition-llama')).not.toHaveClass(/running/);
   await expect(page.locator('.plot .main-svg').first()).toBeVisible();
   await expect(page.locator('#start')).toBeDisabled();
   await page.screenshot({path: 'test-results/workspace-empty.png', fullPage: true});
@@ -39,6 +42,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect(first.locator('.selection-count')).toHaveText('3 selected');
   await page.getByRole('button', {name: 'Start collection'}).click();
   await expect(page.locator('#status')).toHaveText('Recording');
+  await expect(page.locator('#acquisition-llama')).toHaveClass(/running/);
+  await expect(page.locator('.leg-front')).toHaveCSS('animation-name', 'llama-stride');
   const started = await (await page.request.get('/api/state')).json();
   expect(started.devices.find(d => d.id === 'demo-1').selected).toEqual([1, 2]);
   expect(started.devices.find(d => d.id === 'demo-2').selected).toEqual([1]);
@@ -53,6 +58,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await second.locator('[data-series="demo-1/2"]').check();
   await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
   await expect(page.locator('#status')).toHaveText('Collection stopped');
+  await expect(page.locator('#acquisition-llama')).not.toHaveClass(/running/);
+  await expect(page.locator('.leg-front')).toHaveCSS('animation-name', 'none');
   await expect(second.locator('[data-series="demo-1/3"]')).toBeEnabled();
   await expect.poll(() => page.locator('.graph').first().locator('.plot').evaluate(el => el.data?.length)).toBe(3);
   await expect.poll(() => second.locator('.plot').evaluate(el => el.data?.map(s => s.name))).toEqual([
@@ -114,7 +121,7 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
 
 test('graph names stay consistent after delete, rename and reload', async ({page}) => {
   await page.goto('/');
-  await page.evaluate(() => localStorage.setItem('vernier-layout', JSON.stringify({graphs: [{title: 'Graph 2', auto: false, selected: []}]})));
+  await page.evaluate(() => localStorage.setItem('physllama-layout', JSON.stringify({graphs: [{title: 'Graph 2', auto: false, selected: []}]})));
   await page.reload();
   await expect(page.getByRole('textbox', {name: 'Graph title'})).toHaveValue('Graph 1');
   await expect(page.locator('.graph-number')).toHaveCount(0);
@@ -182,4 +189,100 @@ test('Bluetooth progress stays visible through retry and clears on success or fa
   progress = {status: 'connected'};
   await expect(page.locator('#connection-progress')).toBeHidden();
   await expect(page.locator('#scan')).toBeEnabled();
+});
+
+test('llama recovers recording state after reload, respects reduced motion and stops on errors', async ({page}) => {
+  const snapshot = {devices: [], series: [], recording: true, total_points: 2, period_ms: 50,
+    generation: 'llama-test', points: [], cursor: 0, elapsed: .05, error: null,
+    supported_devices: [{id: 'example', label: 'Example family'}]};
+  await page.route('**/api/state?*', route => route.fulfill({json: snapshot}));
+  await page.route('**/api/connection-status', route => route.fulfill({json: {status: 'idle'}}));
+  await page.goto('/');
+  await expect(page.locator('#acquisition-llama')).toHaveClass(/running/);
+  await expect(page.locator('#supported-devices')).toHaveText('Supported: Example family');
+  await page.reload();
+  await expect(page.locator('#acquisition-llama')).toHaveClass(/running/);
+  await page.emulateMedia({reducedMotion: 'reduce'});
+  await expect(page.locator('.leg-front')).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('#status')).toHaveText('Recording');
+  await page.emulateMedia({reducedMotion: 'no-preference'});
+  snapshot.recording = false;
+  snapshot.error = 'Device disconnected. Collected data is preserved.';
+  await expect(page.locator('#notice')).toContainText('Device disconnected');
+  await expect(page.locator('#acquisition-llama')).not.toHaveClass(/running/);
+  snapshot.recording = true;
+  snapshot.error = null;
+  await expect(page.locator('#acquisition-llama')).toHaveClass(/running/);
+  await page.route('**/api/connection-status', route => route.abort());
+  await expect(page.locator('#status')).toHaveText('Server unavailable');
+  await expect(page.locator('#acquisition-llama')).not.toHaveClass(/running/);
+});
+
+test('PhysLlama restores graph preferences saved under the old name', async ({page}) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.removeItem('physllama-layout');
+    localStorage.setItem('vernier-layout', JSON.stringify({title: 'Pendulum lab',
+      graphs: [{title: 'Pendulum motion', customTitle: true, selected: [], follow: false}]}));
+  });
+  await page.reload();
+  await expect(page.locator('#experiment-title')).toHaveValue('Pendulum lab');
+  await expect(page.getByRole('textbox', {name: 'Graph title'})).toHaveValue('Pendulum motion');
+  await page.locator('#experiment-title').fill('Renamed experiment');
+  await page.locator('#experiment-title').press('Tab');
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('physllama-layout'))?.title)).toBe('Renamed experiment');
+});
+
+test('rename keeps hardware identity visible and updates graphs without changing selections', async ({page}) => {
+  await page.goto('/');
+  const card = page.locator('[data-device="demo-1"]');
+  await expect(card).toBeVisible();
+  await card.getByRole('button', {name: 'Rename device', exact: true}).click();
+  await expect(page.locator('#rename-identity')).toContainText('Demo Motion & Force 1');
+  await expect(page.locator('#rename-identity')).toContainText('demo-1');
+  await page.getByLabel('Display name').fill('Red cart <science>');
+  await page.getByRole('button', {name: 'Save name', exact: true}).click();
+  await expect(page.locator('#rename-dialog')).toBeHidden();
+  await expect(card.getByRole('heading')).toContainText('Red cart <science>');
+  await expect(card.locator('.hardware-name')).toHaveText('Advertised name: Demo Motion & Force 1');
+  await expect(card.locator('.device-address')).toContainText('demo-1');
+  await page.locator('.graph').first().locator('summary').click();
+  await expect(page.getByRole('group', {name: 'Red cart <science>', exact: true})).toBeVisible();
+  await page.reload();
+  await expect(card.getByRole('heading')).toContainText('Red cart <science>');
+  await card.getByRole('button', {name: 'Rename device', exact: true}).click();
+  await page.getByLabel('Display name').fill('');
+  await page.getByRole('button', {name: 'Save name', exact: true}).click();
+  await expect(card.getByRole('heading')).toContainText('Demo Motion & Force 1');
+});
+
+test('scan results distinguish Pasco carts by printed serial and Bluetooth ID even with identical nicknames', async ({page}) => {
+  const snapshot = {devices: ['123-456', '987-654'].map((serial, i) => ({
+    id: `bluetooth-id-${i}`, serial, name: 'Red cart', nickname: 'Red cart',
+    hardware_name: `Smart Cart ${serial}>5`, family: 'PASCO Smart Cart',
+    rssi: -40, demo: false, connected: false, sensors: [], selected: [], battery: null, charging: false,
+  })), series: [], recording: false, total_points: 0, period_ms: 50, generation: 'pasco-scan',
+    points: [], cursor: 0, elapsed: 0, error: null, supported_devices: [{id: 'pasco', label: 'PASCO wireless sensors'}]};
+  await page.route('**/api/state?*', route => route.fulfill({json: snapshot}));
+  await page.route('**/api/connection-status', route => route.fulfill({json: {status: 'idle'}}));
+  await page.route('**/api/scan', route => route.fulfill({json: snapshot}));
+  let chosen;
+  await page.route('**/api/connect', route => {
+    chosen = route.request().postDataJSON().device_id;
+    return route.fulfill({json: snapshot});
+  });
+  await page.goto('/');
+  await page.locator('#scan').click();
+  for (let i = 0; i < 2; i++) {
+    const card = page.locator('.device-card').nth(i);
+    await expect(card.getByRole('heading')).toHaveText('Red cart');
+    await expect(card.locator('.device-serial')).toContainText(snapshot.devices[i].serial);
+    await expect(card.locator('.hardware-name')).toContainText(snapshot.devices[i].hardware_name);
+    await expect(card.locator('.device-address')).toContainText(`bluetooth-id-${i}`);
+  }
+  await page.locator('.device-card').nth(1).getByRole('button', {name: 'Connect', exact: true}).click();
+  await expect.poll(() => chosen).toBe('bluetooth-id-1');
+  await page.setViewportSize({width: 390, height: 844});
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({path: 'test-results/pasco-device-identities.png', fullPage: true});
 });

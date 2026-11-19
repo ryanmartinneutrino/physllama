@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .acquisition import Lab
+from .names import DeviceNames
 
 STATIC = Path(__file__).parent / 'static'
 
@@ -17,13 +18,17 @@ class DeviceRequest(BaseModel):
     device_id: str
 
 
+class RenameRequest(DeviceRequest):
+    name: str = Field(max_length=60)
+
+
 class Configuration(BaseModel):
     selections: dict[str, list[int]]
     period_ms: float = Field(ge=10, le=10000, allow_inf_nan=False)
 
 
 def create_app(lab=None, on_shutdown=None, server_mode=False):
-    lab = lab or Lab()
+    lab = lab or Lab(name_store=DeviceNames())
 
     @asynccontextmanager
     async def lifespan(app):
@@ -32,7 +37,7 @@ def create_app(lab=None, on_shutdown=None, server_mode=False):
         await lab.call('shutdown')
         lab.thread.join(timeout=5)
 
-    app = FastAPI(title='Vernier Lab', lifespan=lifespan)
+    app = FastAPI(title='PhysLlama', lifespan=lifespan)
     app.state.lab = lab
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=(['*'] if server_mode else
                        ['127.0.0.1', 'localhost', '[::1]', 'testserver']))
@@ -62,7 +67,7 @@ def create_app(lab=None, on_shutdown=None, server_mode=False):
 
     @app.get('/api/app')
     async def app_info():
-        return {'name': 'Vernier Lab', 'desktop': on_shutdown is not None}
+        return {'name': 'PhysLlama', 'desktop': on_shutdown is not None}
 
     @app.get('/api/connection-status')
     async def connection_status():
@@ -92,6 +97,10 @@ def create_app(lab=None, on_shutdown=None, server_mode=False):
     async def disconnect(body: DeviceRequest):
         return await execute('disconnect', **body.model_dump())
 
+    @app.post('/api/rename')
+    async def rename(body: RenameRequest):
+        return await execute('rename', **body.model_dump())
+
     @app.post('/api/battery')
     async def battery(body: DeviceRequest):
         return await execute('battery', **body.model_dump())
@@ -116,7 +125,7 @@ def create_app(lab=None, on_shutdown=None, server_mode=False):
     async def export(series: list[str] | None = Query(default=None)):
         content = await execute('export_csv', series_ids=series)
         return Response(content, media_type='text/csv; charset=utf-8', headers={
-            'Content-Disposition': 'attachment; filename="vernier-experiment.csv"'})
+            'Content-Disposition': 'attachment; filename="physllama-experiment.csv"'})
 
     @app.get('/')
     async def index():

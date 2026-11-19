@@ -1,4 +1,4 @@
-VERNIER LAB — MAC INSTALLATION
+PHYSLLAMA — MAC INSTALLATION
 
 1. Choose the right download
    Apple menu > About This Mac: "Chip" means Apple Silicon (arm64).
@@ -6,21 +6,21 @@ VERNIER LAB — MAC INSTALLATION
 
 2. Install
    Extract the ZIP. In Finder, open your home folder and create an
-   Applications folder if needed. Drag Vernier Lab.app into that folder.
+   Applications folder if needed. Drag PhysLlama.app into that folder.
    No Terminal commands, Python installation, or internet are needed.
 
-   Optional: double-click Install Vernier Lab.command and answer y to copy
+   Optional: double-click Install PhysLlama.command and answer y to copy
    the app automatically. macOS may require a separate Open Anyway approval
    for this script; dragging the app avoids that extra step.
 
 3. First launch: Open Anyway
-   Double-click the installed Vernier Lab.app. This download is unsigned
+   Double-click the installed PhysLlama.app. This download is unsigned
    and unnotarized, so macOS may say its developer cannot be verified.
    After trying to open it, dismiss that warning, then:
 
    - Open System Settings > Privacy & Security.
    - Scroll down to Security.
-   - Click Open Anyway for Vernier Lab.
+   - Click Open Anyway for PhysLlama.
    - Confirm Open; enter your password or use Touch ID if requested.
 
    Approve only the app you intended to download. You do not need to turn
@@ -30,7 +30,7 @@ VERNIER LAB — MAC INSTALLATION
 4. Bluetooth
    Allow Bluetooth when prompted. If access was denied, check System
    Settings > Privacy & Security > Bluetooth, enable the app shown there,
-   then quit and reopen Vernier Lab. Turn on your sensor, keep it nearby,
+   then quit and reopen PhysLlama. Turn on your sensor, keep it nearby,
    close other sensor apps, and choose Search for devices, then Connect.
    Connection progress appears in the browser; transient failures trigger
    up to three connection attempts. After failure, wake the sensor and search again.
@@ -41,5 +41,5 @@ VERNIER LAB — MAC INSTALLATION
    Before updating, quit the app and move the old app to Trash, then copy
    the new app into place. Your recorded data is lost when the app quits.
 
-Diagnostics: ~/Library/Logs/Vernier Lab/app.log
+Diagnostics: ~/Library/Logs/PhysLlama/app.log
 Downloads: https://github.com/ryanmartinneutrino/vernierserver/releases

@@ -16,7 +16,7 @@ function renderConnection() {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('vernier-layout', JSON.stringify({title: $('#experiment-title').value,
+  try { localStorage.setItem('physllama-layout', JSON.stringify({title: $('#experiment-title').value,
     graphs: graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}))})); } catch { /* Storage can be disabled. */ }
 }
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
@@ -112,6 +112,7 @@ function renderControls() {
   $('#stop').disabled = busy || connecting() || offline || !state.recording;
   $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
   for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
+  $('#save-device-name').disabled = busy || connecting() || offline || state.recording;
   $('#export').disabled = busy || connecting() || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
   const options = new Map(graphChannelOptions().map(s => [s.id, s]));
   for (const graph of graphs) {
@@ -127,6 +128,8 @@ function renderControls() {
   if (document.activeElement !== $('#period')) $('#period').value = state.period_ms;
   $('#status').textContent = offline ? 'Server unavailable' : connecting() ? 'Connecting…' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
   $('#status-dot').classList.toggle('recording', state.recording && !offline);
+  $('#acquisition-llama').classList.toggle('running', state.recording && !offline);
+  $('#supported-devices').textContent = `Supported: ${(state.supported_devices || []).map(d => d.label).join(', ') || 'checking…'}`;
   $('#demo-banner').hidden = !state.devices.some(d => d.demo && d.connected) && !state.series.some(s => s.demo);
 }
 function renderDevices() {
@@ -139,17 +142,41 @@ function renderDevices() {
     const disabled = busy || connecting() || offline || state.recording ? 'disabled' : '';
     return `<article class="device-card" data-device="${esc(d.id)}">
       <div class="device-head"><span class="device-icon" aria-hidden="true">${d.demo ? '∿' : 'ᛒ'}</span><h3>${esc(d.name)}${d.demo ? '<br><span class="demo-label">SIMULATED DEVICE</span>' : ''}</h3></div>
-      <div class="device-meta">${d.demo ? 'Explore with generated measurements' : `${esc(d.id)}${d.rssi != null ? ` · ${d.rssi} dBm` : ''}`}</div>
+      <div class="device-meta">${esc(d.family || 'Bluetooth')}
+        <div class="hardware-name">Advertised name: ${esc(d.hardware_name || d.name)}</div>
+        ${d.serial ? `<div class="device-serial">Device ID: <strong>${esc(d.serial)}</strong></div>` : ''}
+        <div class="device-address">${d.demo ? 'Demo ID' : 'Bluetooth ID'}: <span>${esc(d.id)}</span></div>
+        ${d.rssi != null ? `<div>Signal: ${d.rssi} dBm</div>` : ''}
+      </div>
       <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled}>${inProgress ? (connection.status === 'retrying' ? 'Retrying…' : 'Connecting…') : d.connected ? 'Disconnect' : 'Connect'}</button></div>
+      <button class="text-button rename-device" data-device-action="rename" ${disabled}>Rename device</button>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
       ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · choose what to record in a graph’s Sensors dropdown.</p>` : ''}
+      ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
     </article>`;
   }).join('');
 }
 $('#devices').addEventListener('click', event => {
   const button = event.target.closest('[data-device-action]');
-  if (button) action(button.dataset.deviceAction, {device_id: button.closest('[data-device]').dataset.device});
+  if (!button) return;
+  const id = button.closest('[data-device]').dataset.device;
+  if (button.dataset.deviceAction === 'rename') {
+    const device = state.devices.find(d => d.id === id);
+    $('#rename-dialog').dataset.device = id;
+    $('#device-name').value = device.nickname || '';
+    $('#rename-identity').textContent = `${device.hardware_name || device.name}${device.serial ? ` · Device ID: ${device.serial}` : ''} · Bluetooth ID: ${id}`;
+    $('#rename-error').textContent = '';
+    $('#rename-dialog').showModal();
+    $('#device-name').focus();
+  } else action(button.dataset.deviceAction, {device_id: id});
 });
+$('#rename-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const success = await action('rename', {device_id: $('#rename-dialog').dataset.device, name: $('#device-name').value.trim()});
+  if (success) $('#rename-dialog').close();
+  else $('#rename-error').textContent = $('#notice').textContent || 'Stop collection before renaming a device.';
+});
+$('[data-close="rename-dialog"]').addEventListener('click', () => $('#rename-dialog').close());
 
 function addGraph(saved = {}) {
   const customTitle = saved.customTitle ?? Boolean(saved.title && !/^Graph \d+$/.test(saved.title));
@@ -221,7 +248,7 @@ function renderSeriesPicker(graph) {
     groups.get(channel.device_id).push(channel);
   }
   $('.series-options', graph.node).innerHTML = groups.size ? [...groups.values()].map(channels =>
-    `<fieldset><legend>${esc(channels[0].device)}</legend><div class="device-series">${channels.map(s =>
+    `<fieldset><legend>${esc(channels[0].device)}</legend><p class="picker-device-id">Device: ${esc(state.devices.find(d => d.id === channels[0].device_id)?.serial || channels[0].device_id)}</p><div class="device-series">${channels.map(s =>
       `<label class="series-option${s.canPlot ? '' : ' unavailable'}"><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) ? 'checked' : ''} ${s.canPlot && !busy && !offline ? '' : 'disabled'}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span>${s.canPlot ? '' : `<small>${s.supported === false ? 'Unsupported event channel' : 'Stop collection to add this sensor'}</small>`}</span></label>`
     ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to choose sensors for this graph.</p>';
   $('.sensor-dropdown > p', graph.node).textContent = state.recording
@@ -290,7 +317,7 @@ async function drawGraph(graph) {
   }
   try {
     await Plotly.react(plot, traces, layout, {responsive: true, displaylogo: false, scrollZoom: true,
-      modeBarButtonsToRemove: ['select2d', 'lasso2d'], toImageButtonOptions: {filename: graph.title || 'vernier-graph'}});
+      modeBarButtonsToRemove: ['select2d', 'lasso2d'], toImageButtonOptions: {filename: graph.title || 'physllama-graph'}});
     if (!graph.listeners) {
       plot.on('plotly_relayout', event => {
         if ('xaxis.range[0]' in event || 'xaxis.range' in event) {
@@ -306,9 +333,9 @@ async function drawGraph(graph) {
 }
 
 $('#scan').addEventListener('click', async () => {
-  $('#scan-note').textContent = 'Searching for nearby Go Direct devices…';
+  $('#scan-note').textContent = 'Searching for supported Bluetooth devices…';
   const success = await action('scan');
-  $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No Go Direct devices found. Wake the sensor and try again.') : 'Search unavailable. Check Bluetooth on this computer.';
+  $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No supported devices found. Wake your device and try again.') : 'Search unavailable. Check Bluetooth on this computer.';
 });
 $('#demo').addEventListener('click', () => action('demo'));
 $('#start').addEventListener('click', () => action('start', {selections: selectedConfiguration(), period_ms: state.period_ms}));
@@ -362,7 +389,7 @@ async function poll() {
   setTimeout(poll, connecting() ? 500 : 250);
 }
 try {
-  const saved = JSON.parse(localStorage.getItem('vernier-layout') || 'null');
+  const saved = JSON.parse(localStorage.getItem('physllama-layout') || localStorage.getItem('vernier-layout') || 'null');
   if (saved?.title) $('#experiment-title').value = saved.title;
   if (saved?.graphs?.length) saved.graphs.slice(0, 12).forEach(addGraph);
 } catch { /* Start a clean layout if local preferences are unavailable. */ }
@@ -378,7 +405,7 @@ $('#confirm-quit').addEventListener('click', async () => {
     offline = true; renderControls(); renderDevices();
     $('#status').textContent = 'App closed';
     $('#quit-button').disabled = true;
-    showNotice('Vernier Lab has closed. You can close this tab.');
+    showNotice('PhysLlama has closed. You can close this tab.');
   } catch (error) { quitting = false; showNotice(error.message); poll(); }
 });
 poll();

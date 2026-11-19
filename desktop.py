@@ -16,7 +16,7 @@ sys.path[:0] = [str(APP_DIR), str(APP_DIR.parent / 'deps')]
 
 def main():
     import uvicorn
-    from vernier_lab.server import create_app
+    from physllama.server import create_app
 
     # Reopening the installed app brings the existing experiment back into view.
     # A bound socket also prevents concurrent launches from creating two sessions.
@@ -28,12 +28,12 @@ def main():
         for _ in range(30):
             try:
                 with urllib.request.urlopen('http://127.0.0.1:8765/api/app', timeout=1) as response:
-                    if json.load(response).get('name') == 'Vernier Lab':
+                    if json.load(response).get('name') == 'PhysLlama':
                         webbrowser.open('http://127.0.0.1:8765')
                         return
             except (OSError, ValueError):
                 time.sleep(.1)
-        raise RuntimeError('Port 8765 is already in use. Close the other local server and reopen Vernier Lab.')
+        raise RuntimeError('Port 8765 is already in use. Close the other local server and reopen PhysLlama.')
     listener.listen(128)
     app = create_app(on_shutdown=lambda: setattr(server, 'should_exit', True))
     server = uvicorn.Server(uvicorn.Config(app, host='127.0.0.1', port=8765, log_level='info', use_colors=False))
@@ -56,10 +56,10 @@ def main():
 
 def log_directory():
     if sys.platform == 'win32':
-        return Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'Vernier Lab' / 'Logs'
+        return Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'PhysLlama' / 'Logs'
     if sys.platform == 'darwin':
-        return Path.home() / 'Library' / 'Logs' / 'Vernier Lab'
-    return Path.home() / '.local' / 'state' / 'vernier-lab'
+        return Path.home() / 'Library' / 'Logs' / 'PhysLlama'
+    return Path.home() / '.local' / 'state' / 'physllama'
 
 
 if __name__ == '__main__':
@@ -70,12 +70,12 @@ if __name__ == '__main__':
     try:
         main()
     except Exception:
-        logging.exception('Could not start Vernier Lab')
-        message = f'Vernier Lab could not start. See {log} for details.'
+        logging.exception('Could not start PhysLlama')
+        message = f'PhysLlama could not start. See {log} for details.'
         if sys.platform == 'win32':
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, message, 'Vernier Lab', 0x10)
+            ctypes.windll.user32.MessageBoxW(None, message, 'PhysLlama', 0x10)
         elif sys.platform == 'darwin':
             import subprocess
-            subprocess.run(['osascript', '-e', 'on run argv', '-e', 'display alert "Vernier Lab" message (item 1 of argv)', '-e', 'end run', message], check=False)
+            subprocess.run(['osascript', '-e', 'on run argv', '-e', 'display alert "PhysLlama" message (item 1 of argv)', '-e', 'end run', message], check=False)
         raise

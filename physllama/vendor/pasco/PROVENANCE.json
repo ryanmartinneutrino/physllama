@@ -1,0 +1,16 @@
+{
+  "package": "pasco",
+  "version": "0.3.65",
+  "url": "https://pypi.org/project/pasco/0.3.65/",
+  "wheel_sha256": "180d1960e994400ff820d27991f805c295cea3018c26ac8d9494fb5a5f7f3291",
+  "original_file_sha256": {
+    "pasco_ble_device.py": "f156263aa7933161126f1cee728e25ae2bda9441d861f854d94f1aaa6383c89d",
+    "datasheets.py": "aa29be54be7be699cb5c089b5214979c78b2150f7d50d116e32b0f9dda93be7b"
+  },
+  "changes": [
+    "Normalize CRLF to LF.",
+    "Remove nest_asyncio import and global apply; PhysLlama owns dedicated device loops."
+  ],
+  "adapter": "../../devices/pasco.py",
+  "application_source": "https://github.com/ryanmartinneutrino/pascowebapp/tree/28f70c55ea5fd7eea4aa28b75b2ee3086c976de9"
+}

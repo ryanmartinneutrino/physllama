@@ -1,9 +1,9 @@
 Unicode True
 !include "MUI2.nsh"
 !include "x64.nsh"
-Name "Vernier Lab"
+Name "PhysLlama"
 OutFile "${OUTPUT}"
-InstallDir "$LOCALAPPDATA\Programs\Vernier Lab"
+InstallDir "$LOCALAPPDATA\Programs\PhysLlama"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 !define MUI_ABORTWARNING
@@ -17,38 +17,38 @@ SetCompressor /SOLID lzma
 
 Function .onInit
   ${IfNot} ${RunningX64}
-    MessageBox MB_ICONSTOP "Vernier Lab requires 64-bit Windows."
+    MessageBox MB_ICONSTOP "PhysLlama requires 64-bit Windows."
     Abort
   ${EndIf}
-  MessageBox MB_OKCANCEL "Close Vernier Lab before installing or updating. Export measurements, then use Quit app in its browser window." IDOK proceed
+  MessageBox MB_OKCANCEL "Close PhysLlama before installing or updating. Export measurements, then use Quit app in its browser window." IDOK proceed
   Abort
   proceed:
 FunctionEnd
 
-Section "Vernier Lab"
+Section "PhysLlama"
   SetRegView 64
   SetOutPath "$INSTDIR"
   File /r "${PAYLOAD}\*"
-  CreateDirectory "$SMPROGRAMS\Vernier Lab"
-  CreateShortcut "$SMPROGRAMS\Vernier Lab\Vernier Lab.lnk" "$INSTDIR\python\pythonw.exe" '-I "$INSTDIR\app\desktop.py"'
-  CreateShortcut "$DESKTOP\Vernier Lab.lnk" "$INSTDIR\python\pythonw.exe" '-I "$INSTDIR\app\desktop.py"'
+  CreateDirectory "$SMPROGRAMS\PhysLlama"
+  CreateShortcut "$SMPROGRAMS\PhysLlama\PhysLlama.lnk" "$INSTDIR\python\pythonw.exe" '-I "$INSTDIR\app\desktop.py"'
+  CreateShortcut "$DESKTOP\PhysLlama.lnk" "$INSTDIR\python\pythonw.exe" '-I "$INSTDIR\app\desktop.py"'
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "DisplayName" "Vernier Lab"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "InstallLocation" "$INSTDIR"
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "NoModify" 1
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab" "NoRepair" 1
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "DisplayName" "PhysLlama"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "UninstallString" '$"$INSTDIR\Uninstall.exe$"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "InstallLocation" "$INSTDIR"
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "NoModify" 1
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
   SetRegView 64
-  MessageBox MB_OKCANCEL "Close Vernier Lab before uninstalling. Export measurements, then use Quit app." IDOK remove
+  MessageBox MB_OKCANCEL "Close PhysLlama before uninstalling. Export measurements, then use Quit app." IDOK remove
   Abort
   remove:
-  Delete "$DESKTOP\Vernier Lab.lnk"
-  Delete "$SMPROGRAMS\Vernier Lab\Vernier Lab.lnk"
-  RMDir "$SMPROGRAMS\Vernier Lab"
+  Delete "$DESKTOP\PhysLlama.lnk"
+  Delete "$SMPROGRAMS\PhysLlama\PhysLlama.lnk"
+  RMDir "$SMPROGRAMS\PhysLlama"
   RMDir /r "$INSTDIR\app"
   RMDir /r "$INSTDIR\deps"
   RMDir /r "$INSTDIR\python"
@@ -57,5 +57,5 @@ Section "Uninstall"
   Delete "$INSTDIR\BUILD-MANIFEST.json"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir "$INSTDIR"
-  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VernierLab"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\PhysLlama"
 SectionEnd

@@ -11,20 +11,20 @@ if [[ "$(uname -m)" != "$expected_arch" ]]; then
   read -r -p "Press Return to close. "
   exit 1
 fi
-printf 'Vernier Lab installs in ~/Applications and includes Python and all dependencies.\n'
-printf 'Close any running Vernier Lab session before installing. Export your data first.\n'
-read -r -p 'Install Vernier Lab now? [y/N] ' answer
+printf 'PhysLlama installs in ~/Applications and includes Python and all dependencies.\n'
+printf 'Close any running PhysLlama session before installing. Export your data first.\n'
+read -r -p 'Install PhysLlama now? [y/N] ' answer
 case "$answer" in y|Y|yes|YES) ;; *) exit 0 ;; esac
 mkdir -p "$HOME/Applications"
-destination="$HOME/Applications/Vernier Lab.app"
+destination="$HOME/Applications/PhysLlama.app"
 if [[ -e "$destination" ]]; then
-  echo "Vernier Lab is already installed. Move the existing app to Trash, then rerun this installer."
+  echo "PhysLlama is already installed. Move the existing app to Trash, then rerun this installer."
   read -r -p "Press Return to close. "
   exit 1
 fi
-/usr/bin/ditto "Vernier Lab.app" "$destination"
+/usr/bin/ditto "PhysLlama.app" "$destination"
 echo "Installed: $destination"
 echo "If macOS blocks the app, try opening it, then use System Settings > Privacy & Security > Open Anyway."
 echo "See START HERE - Mac.txt in the download for step-by-step instructions."
-echo "Open Vernier Lab from Applications in your home folder. Allow Bluetooth when prompted."
+echo "Open PhysLlama from Applications in your home folder. Allow Bluetooth when prompted."
 /usr/bin/open "$HOME/Applications"

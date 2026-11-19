@@ -1,41 +1,41 @@
-# Vernier Lab
+# PhysLlama
 
-A local web app for recording and exploring Vernier Go Direct Bluetooth sensors. Run it on the computer with the Bluetooth adapter; the browser is the interface, and a Python service talks to the sensors. No cloud account or Web Bluetooth browser support is needed.
+A local web app for recording and exploring Bluetooth science devices. The current adapters support Go Direct sensors, PASCO Smart Carts and ordinary PASCO wireless sensors, plus an explicit demo device; additional families can be added through the device registry. Run it on the computer with the Bluetooth adapter; the browser is the interface, and a Python service talks to the sensors. No cloud account or Web Bluetooth browser support is needed.
 
 ## Standalone installers (Windows and Mac)
 
-Download the installer for your computer from the public [v0.2.2 release](https://github.com/ryanmartinneutrino/vernierserver/releases/tag/v0.2.2). No GitHub account or sign-in is required.
+PhysLlama 0.3.0 is currently a source update; renamed installers have not been built or published. Run from source below, or build the following packages using the installer instructions. Existing [older releases](https://github.com/ryanmartinneutrino/vernierserver/releases) predate the PhysLlama name and do not contain these changes.
 
-| Computer | Download |
+| Computer | Output filename |
 | --- | --- |
-| Windows 11, Intel/AMD 64-bit | `VernierLab-0.2.2-windows-x64-setup.exe` |
-| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `VernierLab-0.2.2-macos-arm64-installer.zip` |
-| Mac with an Intel processor, macOS 13+ | `VernierLab-0.2.2-macos-x64-installer.zip` |
+| Windows 11, Intel/AMD 64-bit | `PhysLlama-0.3.0-windows-x64-setup.exe` |
+| Mac with Apple Silicon (M1/M2/M3/M4 or later), macOS 13+ | `PhysLlama-0.3.0-macos-arm64-installer.zip` |
+| Mac with an Intel processor, macOS 13+ | `PhysLlama-0.3.0-macos-x64-installer.zip` |
 
 These are **offline, self-contained packages**: Python, platform-specific dependencies, the app, and graphing assets are included. Students do not need Python, Node, Git, a terminal command, or an internet connection to run the installed app. The Mac install script opens Terminal to confirm installation; app launches after installation use the browser directly.
 
-**Release status:** unsigned installers. The user has successfully tested the v0.2.1 installers on Windows and Mac, including real Bluetooth connections; the Mac needed an explicit “Open Anyway” approval and sometimes took multiple connection attempts. Version 0.2.2 adds connection retries and clearer installation instructions. Automated tests and package integrity checks run on Linux; these new connection changes still need testing with physical sensors on each target OS. A `.sha256` file accompanies each installer.
+**Release status:** builds are unsigned. Previous v0.2.1 installers were tested on Windows and Mac with real Bluetooth connections. The PhysLlama rename and adapter refactor still require fresh installer and physical-device testing on each target OS. Building produces a `.sha256` file for each installer. If upgrading from the previous app name, export and quit the old app first; PhysLlama uses a new installation location and does not remove the previous installation.
 
 ### Windows
 
 1. Run the setup `.exe`. It installs for the current user without administrator privileges.
-2. Open **Vernier Lab** from the Start menu or desktop shortcut. It opens the local app in your default browser.
+2. Open **PhysLlama** from the Start menu or desktop shortcut. It opens the local app in your default browser.
 3. Enable Bluetooth in Windows Settings, turn on the sensor, and search/connect in the app.
 4. Export before closing. Choose **Quit app** in the app's header to stop the service and release Bluetooth. Closing a browser tab alone keeps the session running. Reopening the shortcut brings back that session.
 
-Uninstall through **Settings → Apps → Installed apps → Vernier Lab**, or `Uninstall.exe` in `%LOCALAPPDATA%\Programs\Vernier Lab`. Quit the app before upgrading or uninstalling. Runtime diagnostics are in `%LOCALAPPDATA%\Vernier Lab\Logs\app.log`.
+Uninstall through **Settings → Apps → Installed apps → PhysLlama**, or `Uninstall.exe` in `%LOCALAPPDATA%\Programs\PhysLlama`. Quit the app before upgrading or uninstalling. Runtime diagnostics are in `%LOCALAPPDATA%\PhysLlama\Logs\app.log`.
 
 ### macOS
 
 1. Choose the ZIP matching **Apple menu → About This Mac**: “Chip” means Apple Silicon; “Processor: Intel” means Intel. Extract it and open **START HERE - Mac.txt**.
-2. In Finder, drag **Vernier Lab.app** into **Applications** in your home folder (create that folder if needed). This avoids having to approve the optional installer script as well as the app. Alternatively, double-click **Install Vernier Lab.command**, then type `y` and Return to copy it automatically.
-3. Open the installed **Vernier Lab.app**. If macOS blocks it because its developer cannot be verified, dismiss the warning, open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** for Vernier Lab. Confirm **Open**, authenticating if asked. Try opening the app first so that this option appears. If using the optional `.command` installer, it may need the same approval separately.
-4. Allow Bluetooth access when prompted. If previously denied, check **System Settings → Privacy & Security → Bluetooth**, enable access for the app shown there, then quit and reopen Vernier Lab.
+2. In Finder, drag **PhysLlama.app** into **Applications** in your home folder (create that folder if needed). This avoids having to approve the optional installer script as well as the app. Alternatively, double-click **Install PhysLlama.command**, then type `y` and Return to copy it automatically.
+3. Open the installed **PhysLlama.app**. If macOS blocks it because its developer cannot be verified, dismiss the warning, open **System Settings → Privacy & Security**, scroll to **Security**, and click **Open Anyway** for PhysLlama. Confirm **Open**, authenticating if asked. Try opening the app first so that this option appears. If using the optional `.command` installer, it may need the same approval separately.
+4. Allow Bluetooth access when prompted. If previously denied, check **System Settings → Privacy & Security → Bluetooth**, enable access for the app shown there, then quit and reopen PhysLlama.
 5. Export your measurements, then use **Quit app** in the browser header when finished. Closing the browser tab keeps the session alive.
 
 Approve only the download you intended to install. There is no need to disable macOS security globally. These packages remain unsigned and unnotarized, so this first-launch approval is still necessary. See [Apple’s instructions for opening an app from an unidentified developer](https://support.apple.com/en-us/102445).
 
-The installer never replaces an existing app silently. To update, quit Vernier Lab, move the previous `.app` to Trash, and run the new installer. To uninstall, quit and move the `.app` to Trash. Logs are in `~/Library/Logs/Vernier Lab/app.log`.
+The installer never replaces an existing app silently. To update, quit PhysLlama, move the previous `.app` to Trash, and run the new installer. To uninstall, quit and move the `.app` to Trash. Logs are in `~/Library/Logs/PhysLlama/app.log`.
 
 ## Run on your Linux laptop
 
@@ -65,9 +65,38 @@ If you downloaded a ZIP, extract it and run `bash start.sh` in that directory.
 
 With `--server`, open `http://<server-IP>:8080` from another computer on the network (use your chosen port). The default port is 8765. Bluetooth still runs on the server computer, so the sensors must be within its Bluetooth range. All clients share the same experiment and can control collection. Server mode has no login; use it on a trusted network. Without `--server`, the launcher listens only on `127.0.0.1`.
 
-Enable Bluetooth in your desktop settings. Turn on the Go Direct sensor, click **Search for devices**, and connect it. Do not connect it to Graphical Analysis, LabQuest, or another app at the same time. Pairing through desktop settings is not normally required.
+Enable Bluetooth in your desktop settings. Turn on a supported device, click **Search for devices**, and connect it. The Devices panel lists the supported families and labels each recognized device. Match the device’s printed ID to the scan result before connecting. Go Direct and supported PASCO devices are recognized in the same scan; nothing connects automatically. Do not connect the selected device to Graphical Analysis, LabQuest, SPARKvue, Capstone, or another app at the same time. Pairing through desktop settings is not normally required.
 
 If scanning fails, check `bluetoothctl show` and `rfkill list`. “No default controller available” or “No Bluetooth adapters found” means the OS cannot currently expose an adapter to this app. Try the laptop's Bluetooth settings or a supported USB BLE adapter. Do not run the app as root.
+
+## PASCO devices and workbench identification
+
+Turn on the device and search. Every scan result shows its **advertised name**, **Bluetooth ID** (an address or OS-provided UUID), and, for PASCO, its **printed six-digit ID** such as `123-456`. Match this to the device on your own workbench before connecting; signal strength is only a proximity hint. The same scan can find multiple carts and Go Direct sensors. No red/blue assignment or serial allowlist is built in.
+
+Smart Cart channels are position, force, acceleration X/Y/Z/resultant, and derived velocity/speed. The SDK’s known problematic cart gyro channels remain excluded, as in the original app. Ordinary wireless sensor profiles listed in `devices/pasco.py` expose their SDK-reported visible, non-internal measurements. This includes temperature, force/acceleration, motion, voltage/current and the other ordinary wireless families in the pinned SDK table. Control/code nodes, plugin hubs and actuators are not supported by this input adapter.
+
+PASCO reads are polled, not buffered high-rate streaming. The sampling interval is a requested minimum spacing (20–10,000 ms); actual acquisition is limited by Bluetooth round trips and selected sensor groups. Position-only reads are fastest; force and acceleration add requests. The original cart app observed roughly 60 ms per sensor group, but actual rates depend on the host and device. Choose position or derived velocity/speed alone when timing matters. Battery status comes from unsolicited device packets and may take time to arrive. A charging device’s voltage-derived percentage can read high.
+
+Choose **Rename device** while stopped to assign a display name such as “Bench 3 — red cart.” Leave it blank to restore the advertised name. Names appear in graphs and CSV but never replace the displayed hardware identity or change connection selection. Names survive refresh, disconnect, rescan, Reset and app restart; they are shared by browsers connected to the same PhysLlama service. They do not rename the device’s Bluetooth advertisement.
+
+Saved names live in `device-names.json` under `%LOCALAPPDATA%/PhysLlama` on Windows, `~/Library/Application Support/PhysLlama` on Mac, and `$XDG_CONFIG_HOME/physllama` (normally `~/.config/physllama`) on Linux. `PHYSLLAMA_DATA_DIR` overrides that directory. The Bluetooth ID is host-specific on some operating systems, so copying this file between computers is not a portable device assignment mechanism.
+
+Pasco validation currently uses mocked Bluetooth packets with the actual SDK decoder; **new physical-device testing is still required**. On Windows and both Mac variants, scan two carts, identify each by its printed serial, rename them, record position/force/acceleration and derived speed, stop/resume, export, disconnect/reconnect, and verify that powering off one cart stops the run while retaining earlier samples. Test other sensor models with their actual hardware before classroom use.
+
+## Instructor server and independent student workspaces
+
+**Current server mode is one shared experiment.** Every browser reaches the same `Lab`, device connections, selection, recording controls, data and exports. Titles and graph layouts are saved separately in each browser, but this does not isolate acquisition: a student can stop or reset everyone’s shared run. New URLs or separate browser tabs alone would not change that. This mode suits an instructor demonstration or a group controlling one experiment.
+
+The planned classroom mode uses the instructor’s Bluetooth adapter for all devices, with an independent experiment for each student or group. The same website serves each workspace. This is a further backend feature and needs:
+
+- A workspace identity and join code/session cookie, with per-workspace runs, selections, sampling settings, errors, exports and saved graph layouts. The same app can serve each workspace; separate website code is unnecessary.
+- A shared Bluetooth manager that scans once, tracks an exclusive owner for each device, checks ownership for every connect/configure/start/stop/rename operation, and visibly marks devices in use by another group. This must be enforced by the server, not just by hiding buttons.
+- Roles for students and instructors, plus a policy for joining a group, reconnecting after a browser refresh, releasing abandoned reservations, retaining/exporting data, limiting memory and handling disconnects. Instructor shutdown and cross-workspace actions must be protected.
+- Per-device scheduling that allows one workspace to record while another connects or stops. The current global `require_idle` and global stop-on-device-error must become workspace-specific. PASCO’s device workers already help with isolation, but Go Direct and shared scan/connection handling need coordination.
+
+All Bluetooth in that design still belongs to the **server computer**, with its range, radio bandwidth and OS connection limits. A remote webpage does not give the Python server access to the student laptop’s Bluetooth. Capacity should be measured with the intended class size; no class-wide connection count is guaranteed.
+
+This instructor-hosted design does not require student-side Bluetooth software or browser Bluetooth drivers. Students would join their own workspace, reserve the device IDs on their workbench, choose sensors and sampling settings, and start/stop/export their experiment independently. A Stop, Reset or device failure in one workspace must not affect another. Multiple backend processes on different ports would separate data today, but would still compete for the same host Bluetooth adapter and lack device reservation enforcement; that is not a complete classroom solution.
 
 ## Bluetooth connection help
 
@@ -77,9 +106,9 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 
 ## Collect and explore
 
-- Connect one or more discovered Go Direct devices. The Devices panel manages connections and battery status. Sensor selection happens only in graph dropdowns.
+- Connect one or more recognized Bluetooth devices. The Devices panel manages connections and battery status. Sensor selection happens only in graph dropdowns.
 - Check sensors in the graphs’ **Sensors** dropdowns, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
-- **Start collection** starts a new run. **Stop** keeps the data. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
+- **Start collection** starts a new run and the scientist llama runs beside the collection status. **Stop** keeps the data and returns the llama to its standing pose. Errors and lost server connections also stop the animation; reduced-motion preferences keep it still while the text reports the recording state. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
 - Each graph has a **Sensors** dropdown with checkboxes grouped by device. The union of checked sensors across all graphs determines what the next run records, with each sensor recorded once even when used on multiple graphs. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. All supported connected sensors are available directly in the dropdown. While recording, you can show or hide already-recorded channels; stop first to add a previously unrecorded sensor. Removing a graph or hiding a trace does not interrupt the current run, but changes the selection for the next Start. Different units use separate labeled axes; series with the same units share an axis.
 - Graphs have a single editable title. Automatic titles renumber after deletion; custom titles survive deletion of other graphs and page reloads.
 - Scroll to zoom, drag a zoom rectangle, or select pan in the Plotly toolbar. Hover for the sensor, value, units, time, and run. Zooming switches off **Follow live**. **Fit view** resets the axes; check **Follow live** to keep fitting new samples.
@@ -91,18 +120,18 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 
 ## Data, units, and timing
 
-The app records device-reported measurements and units without extra scaling, calibration, or zero offsets. An empty unit field is labeled `a.u.` (arbitrary units). Device calibration is handled by Vernier firmware/the library. Advanced calibration workflows and aperiodic/event channels are not implemented.
+The app records SDK-decoded measurements without extra scaling or calibration. Smart Cart position is zeroed at the first sample of each run, matching the previous cart app; its derived velocity and speed use a rolling least-squares fit to the last three position samples. Derivative history is cleared on every Start, so it never spans a pause. Initial or unavailable derivatives are missing values, not invented zeros. Other measurements have no additional zero offset. An empty unit field is labeled `a.u.` (arbitrary units). Device calibration is handled by the device firmware and its adapter library. Advanced calibration workflows and aperiodic/event channels are not implemented.
 
 CSV is in long format:
 
 ```text
-run,time_s,device,device_id,sensor,unit,value,source
-1,0.000014,Demo Motion & Force 1,demo-1,Force,N,0.0,demo
+run,time_s,device,device_id,sensor,unit,value,source,device_hardware_name,serial
+1,0.000014,Bench 1,demo-1,Force,N,0.0,demo,Demo Motion & Force 1,
 ```
 
-Each row is one channel value, with full numeric precision and a `sensor` or `demo` source label. Missing/non-finite measurements export as empty values. `time_s` is relative to the first Start and includes pauses. Samples are ordered by receipt; each channel has its own time sequence.
+Each row is one channel value, with full numeric precision and a `sensor` or `demo` source label. `device` is the current display name; `device_id` is the immutable transport identity, `device_hardware_name` is the original advertised name, and `serial` is the printed PASCO ID when available. Renaming updates display names for this session’s recorded series without changing their IDs or values. Missing/non-finite measurements export as empty values. `time_s` is relative to the first Start and includes pauses. Samples are ordered by receipt; each channel has its own time sequence.
 
-Sample times are reconstructed from the requested sampling interval and the host's monotonic time immediately before each device's Start command. Devices are **not hardware synchronized**, so there can be Bluetooth command latency between their actual starts. This is suitable for introductory force/motion exploration, not precise cross-device phase measurements. Reported dropped-sample packets stop collection with an error instead of silently compressing the time axis. A connection loss or data timeout also stops collection and preserves prior samples.
+For Go Direct and demo devices, sample times are reconstructed from the requested sampling interval and the host's monotonic time immediately before each device's Start command. PASCO samples use the midpoint of the host-monotonic request/response interval, as in the Smart Cart app; their actual, potentially irregular spacing is preserved. Reading multiple sensor groups involves separate Bluetooth requests, so one batch timestamp is an approximation, not synchronized acquisition across its channels. Devices are **not hardware synchronized**, so there can be Bluetooth command latency between their actual starts. This is suitable for introductory force/motion exploration, not precise cross-device phase measurements. Reported dropped-sample packets stop collection with an error instead of silently compressing the time axis. A connection loss or data timeout also stops collection and preserves prior samples.
 
 Data lives in the local service's memory. Refreshing or reopening the browser recovers the current session; exiting the service loses it. Export before stopping the app. The session stops at **250,000 channel values** without discarding earlier samples. Large graphs use min/max display reduction after 4,000 values per series; CSV always includes every recorded value. Titles and graph preferences are saved in browser storage.
 
@@ -110,7 +139,7 @@ Data lives in the local service's memory. Refreshing or reopening the browser re
 
 The automated backend tests cover multi-device acquisition, units and filtered CSV, resume/reset, range/granularity/conflict checks, rollback after a failed Start, data preservation on disconnect, session limits, demo isolation, origin checks, SDK packet parsing, retry limits, partial-connection cleanup, timeouts, and connection progress while the Bluetooth worker is busy. Browser tests exercise the actual UI: device/channel controls, mixed-unit graphs, zoom/hover/fit, export, refresh recovery, reset, error messages, and a narrow viewport.
 
-**Windows and Mac installers and Bluetooth connections have been user-tested with v0.2.1.** The development Linux computer still has no usable Bluetooth adapter. For v0.2.2, repeat this physical-device smoke test, especially the Mac connection retries:
+**Windows and Mac installers and Bluetooth connections have been user-tested with v0.2.1.** The development Linux computer still has no usable Bluetooth adapter. For PhysLlama 0.3.0, repeat this physical-device smoke test, including the Mac connection retries:
 
 1. Search and connect the powered-on sensor; check its model, channel units, and battery reading.
 2. Record force and compatible acceleration channels at 50 ms for 10 seconds while gently moving the sensor.
@@ -136,18 +165,42 @@ If Chromium is already installed in a nonstandard location, set `PLAYWRIGHT_CHRO
 desktop.py                   Bundled desktop entry point and graceful shutdown
 run.py                       Command-line launcher; optional network server mode
 start.sh                     Linux/macOS virtualenv setup and launch
-vernier_lab/server.py        HTTP API and static asset serving
-vernier_lab/acquisition.py   Serialized Bluetooth worker and session store
-vernier_lab/hardware.py      Vernier/Bleak adapter and explicit demo device
-vernier_lab/static/          HTML, CSS, JavaScript, and bundled Plotly
+physllama/server.py          HTTP API and static asset serving
+physllama/acquisition.py     Serialized Bluetooth worker and session store
+physllama/hardware.py        Shared Bluetooth scan and device registry
+physllama/devices/base.py    InputDevice, BluetoothDriver, Channel and Reading contracts
+physllama/devices/godirect.py Go Direct adapter and SDK compatibility fixes
+physllama/devices/demo.py    Explicit simulated device
+physllama/devices/pasco.py   PASCO workers, transport compatibility, and cart processing
+physllama/names.py           Saved display names; immutable identity remains separate
+physllama/vendor/pasco/      Pinned PASCO decoder/data tables, license and provenance
+physllama/static/           HTML, CSS, SVG llama, JavaScript, and bundled Plotly
 packaging/                   Runtime checksums, dependency locks, installer templates
 scripts/build_installers.py  Offline Windows/Mac installer assembly
 tests/                       Backend and browser tests
 ```
 
-The SDK calls and BLE event loop live on one worker thread. Requests and acquisition are serialized there, avoiding cross-thread Bluetooth access. The browser polls bounded incremental batches and can rebuild its state after a reload. By default the service binds to `127.0.0.1` and accepts local hostnames only. `--server` binds to `0.0.0.0` and accepts network hostnames; both modes reject requests with an Origin that differs from the request's host. Multiple tabs and clients share one experiment.
+The Lab worker serializes session operations and Go Direct SDK calls. Each PASCO device owns its own worker and BLE event loop, reusing the Smart Cart app’s design, so its request/response latency does not block another cart or the HTTP state endpoint. PASCO workers return timestamped batches through bounded queues. Stop waits for the current bounded read (at most two seconds for a normal polling cycle), then stops further polling. Bluetooth discovery and connection requests remain serialized through Lab. The browser polls bounded incremental batches and can rebuild its state after a reload. By default the service binds to `127.0.0.1` and accepts local hostnames only. `--server` binds to `0.0.0.0` and accepts network hostnames; both modes reject requests with an Origin that differs from the request's host. Multiple tabs and clients share one experiment.
 
 The adapter includes focused compatibility fixes for godirect 1.2.1: BLE notification reassembly, full 32-bit channel masks, correct single-channel routing, and explicit dropped-sample handling. Metadata packets are skipped, including during command responses. Hardware validation is still required on the target sensor.
+
+## Adding another device family
+
+The browser, HTTP routes, plots, and CSV export use the shared `InputDevice` contract in `physllama/devices/base.py`. No manufacturer-specific branching belongs in those layers. The Go Direct protocol patches and bitmask conversion stay inside `devices/godirect.py`.
+
+1. Add an adapter module under `physllama/devices/` implementing `InputDevice`. Give devices stable IDs (normally their BLE address), a driver ID and family label, channel metadata, optional battery information, and the shared `open(progress)`, `start`, `read`, `stop`, `close`, and `refresh_battery` methods. `close` must release partial connections and be safe to repeat. `open` must clean up failures and report progress; retry policy and SDK-specific deadlines belong in the adapter.
+2. Describe channels with stable integer numbers, names, units, supported sampling ranges, interval granularity (`0` for unrestricted), and `excluded_channels` lists. Convert any vendor bitmasks inside the adapter. Unsupported event channels can be listed with `supported=False`. The current UI accepts a shared 10–10,000 ms requested interval, validated against every selected channel; independently configured rates and event streams would need a further acquisition/UI extension.
+3. Return per-channel batches from `read`: floats for uniform buffered acquisition, or `Reading(value, timestamp)` for irregular measurements. Explicit timestamps are in the host's `time.monotonic()` clock, taken at acquisition, and must not precede the run's start or move backwards within a channel. Convert device-clock timestamps before returning them. Keep reads bounded so another device and Stop can be serviced; slow SDKs should use a bounded queue behind the adapter with explicit loop/thread ownership. Never silently drop samples to catch up.
+4. Implement a `BluetoothDriver` with `id`, `label`, `matches(BLEDevice, AdvertisementData)`, and `create(...)`; register it in `default_registry()` in `hardware.py`. Match advertised service/manufacturer data or a verified family identifier. Discovery runs once for all drivers, ignores unknown devices, rejects ambiguous matches, and passes the scanned device to its adapter. Factories must not connect during discovery. Connected devices retain their original instances when rescanning. Demo devices are added explicitly and never appear as discovered hardware.
+5. Add mock discovery, connection cleanup, channel validation, timing, stop/disconnect and export tests, then test real hardware on target operating systems. `tests/test_devices.py` exercises two independent fake families through the unchanged scan/connect/acquisition/export API. Package any new SDK dependency and its license in all platform locks before distributing it.
+
+The PASCO adapter reuses the [Smart Cart app at commit 28f70c5](https://github.com/ryanmartinneutrino/pascowebapp/tree/28f70c55ea5fd7eea4aa28b75b2ee3086c976de9): per-device workers, bounded reads, unsolicited battery decoding, request/response midpoint timestamps, start-of-run position zeroing, and least-squares derived velocity/speed. Its explicit cart channels also avoid the known gyro decoder issue. The live derivative uses the last three samples so values can be recorded immediately; future samples are not used to revise earlier CSV values. PhysLlama retains its own graph/CSV interface and run semantics.
+
+Discovery replaces hard-coded serial numbers with a model/encoded-interface match against the SDK’s device table and the serial in the advertisement. Connection uses the exact scanned BLE object on Linux/Windows. CoreBluetooth scan results retain their originating event loop, so on macOS the device worker resolves the same selected Bluetooth UUID on its own loop before connecting; it never falls back to a nickname or a different device. These targeted lookups remain serialized with connection requests. The old app’s automatic reconnect and system-wide BlueZ disconnection helper are not used: a failed run stops and preserves data, and PhysLlama only releases connections it owns. A fresh connection attempt uses a new SDK instance with bounded retries and partial-connection cleanup.
+
+The PASCO 0.3.65 decoder and datasheet used by that app are bundled under `physllama/vendor/pasco/`, with their original license, source hashes and provenance. Installing its PyPI distribution directly would require an incompatible Bleak 0.20.2 pin and Python 3.11+, while PhysLlama uses Bleak 3.1.0 and Python 3.10+. The bundled core removes the global `nest_asyncio` patch; the adapter supplies explicit loop ownership, Python 3.10-compatible bounded command tasks, modern Bleak UUID handling and scanned-device connections. Protocol decoding and calibration tables remain upstream code. No additional PyPI dependency or platform lock change is needed; installers include these sources and notices in their manifests.
+
+The Python package is now `physllama`. Browser layouts are saved under `physllama-layout`, with a read fallback for the previous key so existing titles and graph choices survive the rename on the same browser origin.
 
 ## Rebuilding standalone installers
 
@@ -184,4 +237,4 @@ For a classroom release, test both CPU variants on Macs and the Windows installe
 - [Bleak Bluetooth library](https://github.com/hbldh/bleak)
 - [Plotly.js](https://github.com/plotly/plotly.js)
 
-The public GitHub repository uses no Actions workflows, and GitHub Actions is disabled in its repository settings. Third-party license notices are in `THIRD_PARTY_NOTICES.md` and the bundled Plotly license. This is an independent project, not an official Vernier product.
+The public GitHub repository uses no Actions workflows, and GitHub Actions is disabled in its repository settings. Third-party license notices are in `THIRD_PARTY_NOTICES.md` and the bundled Plotly license. PhysLlama is an independent project and is not affiliated with device manufacturers.

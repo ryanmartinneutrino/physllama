@@ -8,9 +8,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from vernier_lab.acquisition import Lab
-from vernier_lab.hardware import CompatibleBLEDevice
-from vernier_lab.server import create_app
+from physllama.acquisition import Lab
+from physllama.devices.godirect import CompatibleBLEDevice
+from physllama.server import create_app
 
 
 @pytest.fixture
@@ -95,7 +95,7 @@ def test_sensor_ranges_granularity_and_conflicts():
         lab.configure({'demo-1': [1]}, 10)
     with pytest.raises(ValueError, match='multiples'):
         lab.configure({'demo-1': [1]}, 25)
-    sensor['exclusion_mask'] = 1 << 2
+    sensor['excluded_channels'] = [2]
     with pytest.raises(ValueError, match='conflicts'):
         lab.configure({'demo-1': [1, 2]}, 40)
     sensor['supported'] = False
@@ -130,7 +130,7 @@ def test_disconnect_preserves_values_and_memory_limit(monkeypatch):
     lab.stop()
     assert lab.points == prior
     lab.devices['demo-1'].connected = True
-    monkeypatch.setattr('vernier_lab.acquisition.MAX_POINTS', len(lab.points))
+    monkeypatch.setattr('physllama.acquisition.MAX_POINTS', len(lab.points))
     with pytest.raises(ValueError, match='full'):
         lab.start()
 
@@ -150,7 +150,7 @@ def test_demo_and_real_cannot_mix_even_across_runs():
 def test_scan_error_is_actionable(client, monkeypatch):
     def fail(loop):
         raise RuntimeError('No Bluetooth adapters found')
-    monkeypatch.setattr('vernier_lab.acquisition.scan_devices', fail)
+    monkeypatch.setattr(client.app.state.lab.registry, 'scan', fail)
     response = client.post('/api/scan')
     assert response.status_code == 400
     assert 'Enable Bluetooth' in response.json()['detail']
@@ -187,7 +187,7 @@ def test_sdk_packet_compatibility():
 def test_desktop_quit_stops_acquisition_and_requests_graceful_shutdown():
     shutdown = []
     with TestClient(create_app(on_shutdown=lambda: shutdown.append(True))) as client:
-        assert client.get('/api/app').json() == {'name': 'Vernier Lab', 'desktop': True}
+        assert client.get('/api/app').json() == {'name': 'PhysLlama', 'desktop': True}
         setup_demo(client)
         assert client.post('/api/start').status_code == 200
         assert client.post('/api/quit').json() == {'quitting': True}

@@ -21,7 +21,7 @@ def test_launcher_network_access_and_browser_behavior(monkeypatch, arguments, ho
             response = client.get('/')
             assert response.status_code == (200 if network_allowed else 400)
             if network_allowed:
-                assert 'Vernier' in response.text
+                assert 'PhysLlama' in response.text
                 assert client.get('/static/app.js').status_code == 200
                 assert client.post('/api/demo', headers={'Origin': f'http://lab-computer:{port}'}).status_code == 200
                 assert client.get('/api/state').json()['devices'][0]['connected']

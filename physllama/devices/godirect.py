@@ -1,11 +1,10 @@
-"""Small adapter around Vernier's protocol library; all calls stay on one thread."""
+"""Go Direct protocol adapter; all calls stay on one thread."""
 import asyncio
-import math
 import queue
 import struct
 import time
 
-from bleak import BleakClient, BleakScanner
+from bleak import BleakClient
 from bleak.exc import BleakBluetoothNotAvailableError
 from godirect.device_bleak import GoDirectDeviceBleak
 
@@ -109,8 +108,10 @@ class CompatibleBLEDevice(GoDirectDeviceBleak):
         return True
 
 
-class RealDevice:
+class GoDirectDevice:
     demo = False
+    driver = 'go-direct'
+    family = 'Go Direct'
 
     ATTEMPTS = 3
     ATTEMPT_TIMEOUT = 30
@@ -154,7 +155,7 @@ class RealDevice:
                     self.close()
                 except Exception as cleanup:
                     raise RuntimeError('Could not release the previous Bluetooth connection. '
-                                       'Quit and reopen Vernier Lab, then try again.') from cleanup
+                                       'Quit and reopen PhysLlama, then try again.') from cleanup
                 reason = str(exc) or type(exc).__name__
                 permanent = isinstance(exc, (BleakBluetoothNotAvailableError, PermissionError))
                 if permanent or attempt == self.ATTEMPTS:
@@ -178,7 +179,8 @@ class RealDevice:
             number=s.sensor_number, name=s.sensor_description,
             unit=s.sensor_units or 'a.u.', minimum_ms=s.min_measurement_period,
             maximum_ms=s.max_measurement_period, step_ms=s.measurement_period_granularity,
-            exclusion_mask=s.mutual_exclusion_mask, supported=s.sampling_mode == 0,
+            excluded_channels=[n for n in sensors if s.mutual_exclusion_mask & (1 << n)],
+            supported=s.sampling_mode == 0,
         ) for s in sensors.values()]
         self.refresh_battery()
 
@@ -222,47 +224,13 @@ class RealDevice:
             self.raw._device = None
 
 
-def scan_devices(loop):
-    found = loop.run_until_complete(BleakScanner.discover(timeout=5, return_adv=True))
-    return [RealDevice(d.address, a.local_name or d.name, a.rssi, d)
-            for d, a in found.values() if (a.local_name or d.name or '').startswith('GDX')]
+class GoDirectDriver:
+    id = 'go-direct'
+    label = 'Go Direct'
 
+    def matches(self, device, advertisement):
+        return (advertisement.local_name or device.name or '').startswith('GDX')
 
-class DemoDevice:
-    demo = True
-
-    def __init__(self, number=1):
-        self.id, self.name, self.rssi = f'demo-{number}', f'Demo Motion & Force {number}', None
-        self.connected, self.battery, self.charging = False, None, False
-        self.sensors = [dict(number=i, name=name, unit=unit, minimum_ms=10,
-                             maximum_ms=10000, step_ms=1, exclusion_mask=0, supported=True)
-                        for i, (name, unit) in enumerate([
-                            ('Force', 'N'), ('Acceleration X', 'm/s²'),
-                            ('Acceleration Y', 'm/s²'), ('Acceleration Z', 'm/s²')], 1)]
-
-    def open(self):
-        self.connected = True
-
-    def refresh_battery(self):
-        pass
-
-    def start(self, numbers, period):
-        self.numbers, self.period = numbers, period / 1000
-        self.started, self.index = time.monotonic(), 0
-
-    def read(self):
-        count = int((time.monotonic() - self.started) / self.period) + 1
-        result = {n: [] for n in self.numbers}
-        for i in range(self.index, count):
-            t = i * self.period
-            for n in self.numbers:
-                value = (4.2 if n == 1 else 1.8) * math.sin(t * 2.6 + (n - 1) * 0.7)
-                result[n].append(value + (9.81 if n == 4 else 0))
-        self.index = count
-        return result
-
-    def stop(self):
-        pass
-
-    def close(self):
-        self.connected = False
+    def create(self, device, advertisement):
+        return GoDirectDevice(device.address, advertisement.local_name or device.name,
+                              advertisement.rssi, device)

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from vernier_lab.acquisition import Lab
-from vernier_lab.hardware import CompatibleBLEDevice, RealDevice
-from vernier_lab.server import create_app
+from physllama.acquisition import Lab
+from physllama.devices.godirect import CompatibleBLEDevice, GoDirectDevice
+from physllama.server import create_app
 
 
 @pytest.fixture
@@ -50,8 +50,8 @@ def test_uses_scanned_device_and_cleans_partial_notification_failure(loop, monke
         async def start_notify(self, *args):
             raise PermissionError('Bluetooth access denied')
 
-    monkeypatch.setattr('vernier_lab.hardware.BleakClient', Client)
-    device = RealDevice('id', 'GDX sensor', -40, scanned)
+    monkeypatch.setattr('physllama.devices.godirect.BleakClient', Client)
+    device = GoDirectDevice('id', 'GDX sensor', -40, scanned)
     with pytest.raises(RuntimeError, match='Privacy & Security'):
         device.open()
     assert len(clients) == 1  # Permission errors need user action, not retries.
@@ -62,8 +62,8 @@ def test_uses_scanned_device_and_cleans_partial_notification_failure(loop, monke
 
 @pytest.mark.parametrize('succeeds', [True, False])
 def test_retry_uses_fresh_clients_and_releases_failed_connections(loop, monkeypatch, succeeds):
-    monkeypatch.setattr(RealDevice, 'RETRY_DELAY', 0)
-    device = RealDevice('id', 'GDX sensor', -40)
+    monkeypatch.setattr(GoDirectDevice, 'RETRY_DELAY', 0)
+    device = GoDirectDevice('id', 'GDX sensor', -40)
     clients, statuses = [], []
 
     def attempt():
@@ -96,7 +96,7 @@ def test_retry_uses_fresh_clients_and_releases_failed_connections(loop, monkeypa
 
 
 def test_cleanup_failure_stops_retrying_without_losing_client(loop, monkeypatch):
-    device = RealDevice('id', 'GDX sensor', -40)
+    device = GoDirectDevice('id', 'GDX sensor', -40)
     client = FakeClient('id')
 
     async def fail_disconnect():
@@ -128,7 +128,7 @@ def test_transport_has_elapsed_time_read_and_handshake_deadlines(loop, monkeypat
         async def connect(self):
             await asyncio.sleep(60)
 
-    monkeypatch.setattr('vernier_lab.hardware.BleakClient', HungClient)
+    monkeypatch.setattr('physllama.devices.godirect.BleakClient', HungClient)
     raw.id = 'id'
     raw.connection_deadline = time.monotonic() + .02
     with pytest.raises(asyncio.TimeoutError):
@@ -145,7 +145,7 @@ def test_progress_endpoint_responds_during_connect_and_data_survives_failure():
         assert release.wait(3)
         raise RuntimeError('Connection failed')
 
-    device = SimpleNamespace(id='real', name='GDX sensor', connected=False, demo=False,
+    device = SimpleNamespace(driver='test', family='Test', id='real', name='GDX sensor', connected=False, demo=False,
                              open=open_device, close=lambda: None, sensors=[],
                              rssi=-40, battery=None, charging=False)
     lab.devices['real'] = device
@@ -164,3 +164,22 @@ def test_progress_endpoint_responds_during_connect_and_data_survives_failure():
         assert client.get('/api/connection-status').json()['status'] == 'failed'
         assert lab.points == [{'t': 0, 'retained': True}]
         assert not lab.recording
+
+
+def test_go_direct_metadata_normalizes_vendor_channel_masks(loop):
+    device = GoDirectDevice('id', 'GDX sensor', -40)
+    sensors = {n: SimpleNamespace(sensor_number=n, sensor_description=f'Channel {n}',
+               sensor_units='N' if n == 1 else '', min_measurement_period=10,
+               max_measurement_period=1000, measurement_period_granularity=10,
+               mutual_exclusion_mask=(1 << 17) if n == 1 else 0,
+               sampling_mode=0 if n == 1 else 1) for n in (1, 17)}
+    device.raw.open = lambda: True
+    device.raw.list_sensors = lambda: sensors
+    device.refresh_battery = lambda: None
+    device._open_once()
+    first, second = device.sensors
+    assert first['excluded_channels'] == [17]
+    assert first['unit'] == 'N' and first['supported']
+    assert second['excluded_channels'] == []
+    assert second['unit'] == 'a.u.' and not second['supported']
+    assert first['minimum_ms'] == 10 and first['maximum_ms'] == 1000 and first['step_ms'] == 10
