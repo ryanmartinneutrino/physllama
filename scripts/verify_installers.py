@@ -19,6 +19,7 @@ def verify_manifest(manifest, read):
             raise RuntimeError(f'Payload checksum mismatch: {filename}')
     for filename in ('app/desktop.py', 'app/physllama/server.py', 'app/physllama/static/app.js',
                      'app/physllama/devices/pasco.py', 'app/physllama/names.py',
+                     'app/physllama/classroom.py', 'app/physllama/csv_export.py',
                      'app/physllama/vendor/pasco/pasco_ble_device.py',
                      'app/physllama/vendor/pasco/datasheets.py',
                      'app/physllama/vendor/pasco/LICENSE',

@@ -96,13 +96,17 @@ class CompatiblePascoDevice(PASCOBLEDevice):
 
     async def write(self, service_id, command):
         # Unlike the SDK's bare except, preserve cancellation and transport errors.
-        await self._client.write_gatt_char(str(self._set_uuid(service_id, self.SEND_CMD_CHAR_ID)), bytes(command))
+        # pascowebapp pins Bleak 0.20.2, whose default was no ATT response.
+        # Bleak >=0.21 changed that default. PASCO acknowledges through its
+        # notification queue; waiting for an ATT response can stall the write.
+        await self._client.write_gatt_char(str(self._set_uuid(service_id, self.SEND_CMD_CHAR_ID)),
+                                           bytes(command), response=False)
 
     async def write_await_callback(self, service_id, one_shot_cmd):
         # Same deadline/queue cleanup as the source app, with gather rather than
         # TaskGroup so the existing Python 3.10+ desktop/runtime support remains.
         timeout = self.budget(READ_TIMEOUT)
-        self._expected_response = (service_id, one_shot_cmd[0])
+        self._expected_response = tuple(one_shot_cmd)
         self._response_error = None
         tasks = [asyncio.create_task(self.write(service_id, one_shot_cmd)),
                  asyncio.create_task(self.check_callback())]
@@ -129,19 +133,19 @@ class CompatiblePascoDevice(PASCOBLEDevice):
                                        'charging': len(data) >= 6 and bool(data[5] & 1)}
             return
         if data[0] == self.GRSP_RESULT:
-            service = self._handle_service.get(char.handle)
             expected = getattr(self, '_expected_response', None)
-            if not expected or service != expected[0]:
+            if not expected:
                 return  # Unsolicited/stale acknowledgement must not complete a read.
             if len(data) < 3:
                 self._response_error = 'Incomplete PASCO response.'
-            elif data[2] != expected[1]:
+            elif data[2] != expected[0]:
                 return
             elif data[1] != 0:
                 self._response_error = 'PASCO rejected the measurement request.'
             elif data[2] == self.GCMD_READ_ONE_SAMPLE:
-                channel = next(c for c in self._device_channels if c['id'] == service - 1)
-                if len(data) - 3 != channel['total_data_size']:
+                # The source SDK accepts replies on the main service too.
+                # Validate against the requested size, not the notify service.
+                if len(data) - 3 != expected[1]:
                     self._response_error = 'Incomplete PASCO measurement packet.'
             if self._response_error:
                 await self._queue.put(True)
@@ -302,11 +306,10 @@ class PascoDevice:
 
     def _poll(self):
         began = time.monotonic()
-        self.raw.deadline = began + READ_TIMEOUT
-        try:
-            values = self.raw.read_data_list(self._wanted)
-        finally:
-            self.raw.deadline = None
+        # Like pascowebapp, allow READ_TIMEOUT for each sensor request. Force,
+        # acceleration and position require distinct requests; sharing a single
+        # budget made otherwise healthy carts fail with several channels enabled.
+        values = self.raw.read_data_list(self._wanted)
         ended = time.monotonic()
         timestamp = (began + ended) / 2  # Source app's request/response midpoint.
         if 'Position' in values and self.model == 'Smart Cart':

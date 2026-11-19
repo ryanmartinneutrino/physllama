@@ -14,7 +14,13 @@ APP_DIR = Path(__file__).resolve().parent
 sys.path[:0] = [str(APP_DIR), str(APP_DIR.parent / 'deps')]
 
 
-def main():
+def main(argv=None):
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments:
+        # Bundled Python needs the app/deps path setup above. Reuse the same
+        # command-line launcher for instructor mode and custom ports.
+        from run import main as launch
+        return launch(arguments)
     import uvicorn
     from physllama.server import create_app
 

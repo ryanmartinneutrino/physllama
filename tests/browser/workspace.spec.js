@@ -81,8 +81,8 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   expect(download.suggestedFilename()).toContain('DEMO.csv');
   const stream = await download.createReadStream();
   let csv = ''; for await (const chunk of stream) csv += chunk;
-  expect(csv).toContain('Acceleration X,m/s²');
-  expect(csv).toContain('Force,N');
+  expect(csv).toContain('Acceleration X [m/s²]');
+  expect(csv).toContain('Force [N]');
   // A graph export includes exactly its sensors and all samples outside zoom.
   await second.locator('.plot').evaluate(el => window.Plotly.relayout(el, {'xaxis.range': [.1, .2]}));
   const graphDownloadPromise = page.waitForEvent('download');
@@ -92,11 +92,12 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   let graphCSV = '';
   for await (const chunk of await graphDownload.createReadStream()) graphCSV += chunk;
   const rows = graphCSV.trim().split(/\r?\n/).slice(1).map(row => row.split(','));
-  expect([...new Set(rows.map(row => `${row[3]}/${row[4]}`))].sort()).toEqual([
-    'demo-1/Acceleration X', 'demo-2/Force',
-  ]);
-  const recorded = await (await page.request.get('/api/state')).json();
-  expect(rows).toHaveLength(recorded.points.filter(p => ['demo-1/2', 'demo-2/1'].includes(p.series)).length);
+  const header = graphCSV.split(/\r?\n/)[0].split(',');
+  expect(header).toHaveLength(4);
+  expect(header.some(column => column.includes('Acceleration X [m/s²] (demo-1/2'))).toBe(true);
+  expect(header.some(column => column.includes('Force [N] (demo-2/1'))).toBe(true);
+  expect(rows.length).toBeGreaterThan(1);
+  expect(rows.every(row => row.length === 4 && row.every(value => value !== ''))).toBe(true);
   expect(Math.max(...rows.map(row => Number(row[1])))).toBeGreaterThan(.2);
   const samples = await page.locator('#samples').innerText();
   await page.reload();
@@ -285,4 +286,40 @@ test('scan results distinguish Pasco carts by printed serial and Bluetooth ID ev
   await page.setViewportSize({width: 390, height: 844});
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({path: 'test-results/pasco-device-identities.png', fullPage: true});
+});
+
+test('experiment names persist and top export includes every recorded channel while graph exports stay filtered', async ({page}) => {
+  await page.request.post('/api/stop', {data: {}});
+  await page.request.post('/api/reset', {data: {}});
+  await page.request.post('/api/connect', {data: {device_id: 'demo-1'}});
+  await page.goto('/');
+  await page.getByRole('textbox', {name: 'Experiment name', exact: true}).fill('Collision experiment');
+  await page.getByRole('textbox', {name: 'Experiment name', exact: true}).press('Tab');
+  await page.request.post('/api/start', {data: {selections: {'demo-1': [1, 2]}, period_ms: 10}});
+  await expect.poll(async () => (await (await page.request.get('/api/state')).json()).total_points).toBeGreaterThan(4);
+  await page.request.post('/api/stop', {data: {}});
+  const graph = page.locator('.graph').first();
+  await graph.locator('summary').click();
+  await graph.locator('[data-series="demo-1/1"]').check();
+  await expect(graph.locator('[data-series="demo-1/2"]')).not.toBeChecked();
+  const graphExport = page.waitForEvent('download');
+  await graph.getByRole('button', {name: 'Download CSV'}).click();
+  let graphCSV = '';
+  for await (const part of await (await graphExport).createReadStream()) graphCSV += part;
+  expect(graphCSV).toContain('Force [N]');
+  expect(graphCSV).not.toContain('Acceleration X [m/s²]');
+  await graph.locator('summary').click();
+  await graph.locator('[data-series="demo-1/1"]').uncheck();
+  await expect(graph.getByRole('button', {name: 'Download CSV'})).toBeDisabled();
+  await expect(page.locator('#export')).toBeEnabled();
+  const allExport = page.waitForEvent('download');
+  await page.locator('#export').click();
+  const downloaded = await allExport;
+  expect(downloaded.suggestedFilename()).toBe('Collision experiment-DEMO.csv');
+  let allCSV = '';
+  for await (const part of await downloaded.createReadStream()) allCSV += part;
+  expect(allCSV).toContain('Force [N]');
+  expect(allCSV).toContain('Acceleration X [m/s²]');
+  await page.reload();
+  await expect(page.getByRole('textbox', {name: 'Experiment name', exact: true})).toHaveValue('Collision experiment');
 });

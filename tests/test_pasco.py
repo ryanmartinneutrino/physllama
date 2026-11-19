@@ -50,8 +50,12 @@ class WireClient:
         if int(uuid[7]) == 0:
             await callback(SimpleNamespace(handle=0), bytes([0x85, 0x24, 0x0f, 75, 0, 1]))
 
-    async def write_gatt_char(self, uuid, command):
+    async def write_gatt_char(self, uuid, command, response=None):
         assert threading.get_ident() == self.owner
+        # Model the cart's notification-based reply. Modern Bleak's implicit
+        # ATT write-with-response can wait forever even when a sample arrives.
+        if response is not False:
+            await asyncio.Future()
         service = int(uuid[7])
         self.requests.append((service, bytes(command)))
         if self.delay:
@@ -63,7 +67,8 @@ class WireClient:
         if self.reply == 'truncated':
             payload = b''
         status = 1 if self.reply == 'rejected' else 0
-        await self.callbacks[service](SimpleNamespace(handle=service), bytearray([0xc0, status, command[0]]) + payload)
+        notify_service = 0 if self.reply == 'main-service' else service
+        await self.callbacks[notify_service](SimpleNamespace(handle=notify_service), bytearray([0xc0, status, command[0]]) + payload)
 
     async def disconnect(self):
         assert threading.get_ident() == self.owner
@@ -187,12 +192,12 @@ def test_slow_cart_does_not_block_shared_state_or_other_cart(wire, monkeypatch):
     entered, release = threading.Event(), threading.Event()
     original = WireClient.write_gatt_char
 
-    async def slow_one(self, uuid, command):
+    async def slow_one(self, uuid, command, response=None):
         if self.target.address == 'cart-a':
             entered.set()
             while not release.is_set():
                 await asyncio.sleep(.005)
-        return await original(self, uuid, command)
+        return await original(self, uuid, command, response=response)
 
     monkeypatch.setattr(WireClient, 'write_gatt_char', slow_one)
     lab = Lab(DeviceRegistry((PascoDriver(),)))
@@ -244,5 +249,38 @@ def test_macos_resolves_only_selected_uuid_on_owning_worker(wire, monkeypatch):
         assert wire.instances[0].target is resolved
         assert calls == [('mac-os-uuid', wire.instances[0].owner)]
         assert calls[0][1] != threading.get_ident()
+    finally:
+        device.close()
+
+
+def test_start_accepts_main_service_notifications_and_uses_original_write_mode(wire, monkeypatch):
+    monkeypatch.setattr('physllama.devices.pasco.READ_TIMEOUT', .1)
+    wire.reply = 'main-service'
+    device = PascoDevice(*scanned())
+    try:
+        device.open()
+        numbers = [s['number'] for s in device.sensors if s['name'] in ('Position', 'Force', 'Accelerationx')]
+        device.start(numbers, 20)
+        first = wait_for(device.read)
+        assert set(first) == set(numbers)
+        assert all(math.isfinite(samples[0].value) for samples in first.values())
+        assert wait_for(device.read)
+        device.stop()
+        device.start(numbers, 20)
+        assert wait_for(device.read)
+    finally:
+        device.close()
+
+
+def test_each_sensor_request_gets_the_source_apps_full_timeout(wire, monkeypatch):
+    monkeypatch.setattr('physllama.devices.pasco.READ_TIMEOUT', .08)
+    wire.delay = .04
+    device = PascoDevice(*scanned())
+    try:
+        device.open()
+        numbers = [s['number'] for s in device.sensors if s['name'] in ('Position', 'Force', 'Accelerationx')]
+        device.start(numbers, 50)
+        assert set(wait_for(device.read)) == set(numbers)
+        device.stop()
     finally:
         device.close()

@@ -183,3 +183,25 @@ def test_go_direct_metadata_normalizes_vendor_channel_masks(loop):
     assert second['excluded_channels'] == []
     assert second['unit'] == 'a.u.' and not second['supported']
     assert first['minimum_ms'] == 10 and first['maximum_ms'] == 1000 and first['step_ms'] == 10
+
+
+def test_corebluetooth_group_worker_resolves_same_uuid_when_scan_loop_differs(loop, monkeypatch):
+    import physllama.devices.godirect as adapter
+    monkeypatch.setattr(adapter, 'sys', SimpleNamespace(platform='darwin'))
+    targets = []
+    class Client(FakeClient):
+        def __init__(self, target):
+            super().__init__(target)
+            targets.append(target)
+    monkeypatch.setattr(adapter, 'BleakClient', Client)
+    raw = CompatibleBLEDevice(None)
+    raw.id = 'selected-mac-uuid'
+    scanned = SimpleNamespace(details=(object(), SimpleNamespace(event_loop=object())))
+    raw.discovered_device = scanned
+    assert raw._connect()
+    assert targets == ['selected-mac-uuid']
+    loop.run_until_complete(raw._device.disconnect())
+    scanned.details[1].event_loop = loop
+    assert raw._connect()
+    assert targets[-1] is scanned
+    loop.run_until_complete(raw._device.disconnect())

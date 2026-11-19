@@ -105,11 +105,13 @@ def test_two_independent_families_share_acquisition_and_export(monkeypatch):
         assert not stopped['recording']
         assert {s['device_id'] for s in stopped['series']} == {'a', 'b'}
         rows = list(csv.DictReader(io.StringIO(client.get('/api/export').text)))
-        assert {r['device_id'] for r in rows} == {'a', 'b'}
-        assert {r['unit'] for r in rows} == {'m'}
-        assert {r['source'] for r in rows} == {'sensor'}
+        columns = list(rows[0])[2:]
+        assert len(columns) == 2
+        assert '(a/101' in columns[0] and '(b/101' in columns[1]
+        assert all('[m]' in column and 'DEMO' not in column for column in columns)
+        assert all(row[column] for row in rows for column in columns)
         # Variable polling times are preserved, rather than invented 50 ms intervals.
-        times = [float(r['time_s']) for r in rows if r['device_id'] == 'a']
+        times = [float(r['time_s']) for r in rows]
         assert len(times) > 1
         assert 0 < times[1] - times[0] < .05
 

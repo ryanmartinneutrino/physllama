@@ -2,6 +2,7 @@
 import asyncio
 import queue
 import struct
+import sys
 import time
 
 from bleak import BleakClient
@@ -25,7 +26,15 @@ class CompatibleBLEDevice(GoDirectDeviceBleak):
         # A scanned BLEDevice avoids Bleak's implicit second discovery, which
         # can interfere with existing connections (and CoreBluetooth on Macs).
         timeout = self._timeout(20)
-        self._device = BleakClient(self.discovered_device or self.id)
+        target = self.discovered_device or self.id
+        if sys.platform == 'darwin' and self.discovered_device is not None:
+            # Classroom discovery belongs to a different worker. CoreBluetooth
+            # delegates retain their original loop, so resolve the same UUID on
+            # this group's loop when ownership has changed.
+            details = self.discovered_device.details
+            if details[1].event_loop is not self._loop:
+                target = self.id
+        self._device = BleakClient(target)
         self._loop.run_until_complete(asyncio.wait_for(self._async_connect(), timeout))
         return self._device.is_connected
 

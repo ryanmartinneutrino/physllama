@@ -45,9 +45,11 @@ def test_multi_device_collection_resume_export_and_reset(client):
     second = client.post('/api/stop').json()
     assert second['run'] == 2
     rows = list(csv.DictReader(io.StringIO(client.get('/api/export?series=demo-1/1').text)))
-    assert {r['sensor'] for r in rows} == {'Force'}
-    assert {r['unit'] for r in rows} == {'N'}
-    assert {r['source'] for r in rows} == {'demo'}
+    columns = list(rows[0])
+    assert columns[:2] == ['run', 'time_s']
+    assert len(columns) == 3
+    assert 'Force [N]' in columns[2] and 'DEMO' in columns[2]
+    assert all(row[columns[2]] != '' for row in rows)
     assert {r['run'] for r in rows} == {'1', '2'}
     assert float(next(r['time_s'] for r in rows if r['run'] == '2')) > float(rows[len(points)-1]['time_s'])
     reset = client.post('/api/reset').json()

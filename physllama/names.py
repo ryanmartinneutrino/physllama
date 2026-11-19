@@ -8,10 +8,10 @@ import tempfile
 import unicodedata
 
 
-def validate_name(name):
+def validate_name(name, max_length=60):
     name = name.strip()
-    if len(name) > 60 or any(unicodedata.category(c).startswith('C') for c in name):
-        raise ValueError('Use a device name of at most 60 characters without control characters.')
+    if len(name) > max_length or any(unicodedata.category(c).startswith('C') for c in name):
+        raise ValueError(f'Use a name of at most {max_length} characters without control characters.')
     return name
 
 

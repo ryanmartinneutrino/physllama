@@ -5,8 +5,6 @@ loop and every device; HTTP requests never call Bluetooth directly.
 """
 import asyncio
 import copy
-import csv
-import io
 import math
 import queue
 import threading
@@ -18,6 +16,7 @@ from .devices.base import InputDevice, Reading
 from .devices.demo import DemoDevice
 from .hardware import default_registry
 from .names import validate_name
+from .csv_export import wide_csv
 
 MAX_POINTS = 250_000
 
@@ -27,6 +26,7 @@ class Lab:
         self.registry = registry if registry is not None else default_registry()
         self.name_store = name_store
         self.names = name_store.load() if name_store is not None else {}
+        self.experiment_name = None
         self.devices: dict[str, InputDevice] = {}
         self.selected = {}
         self.series = {}
@@ -148,8 +148,30 @@ class Lab:
         self.devices[device_id].close()
         return self.snapshot()
 
+    def attach(self, device):
+        """Accept a device reserved for this Lab by the classroom coordinator."""
+        self.require_idle()
+        if device.id not in self.devices:
+            self.devices[device.id] = device
+        return self.connect(device.id)
+
+    def release(self, device_id):
+        self.disconnect(device_id)
+        del self.devices[device_id]
+        self.selected.pop(device_id, None)
+        return self.snapshot()
+
+    def expire(self):
+        self.stop()
+        self.error = 'This group was inactive for 30 minutes. Collection stopped; recorded data is preserved. Reconnect devices to continue.'
+        return self.snapshot()
+
     def display_name(self, device):
         return self.names.get(device.id) or device.name
+
+    def name_experiment(self, name):
+        self.experiment_name = validate_name(name, 80) or 'Untitled experiment'
+        return self.snapshot()
 
     def rename(self, device_id, name):
         self.require_idle()
@@ -305,6 +327,7 @@ class Lab:
         # Bounded deltas; a reloaded browser catches up over several polls.
         points = self.points[after:after + 10000] if generation is not None else []
         return dict(recording=self.recording, period_ms=self.period_ms,
+            experiment_name=self.experiment_name,
             supported_devices=self.registry.families(),
             run=self.run, generation=self.generation, error=self.error,
             total_points=len(self.points), elapsed=max((p['t'] for p in self.points[-200:]), default=0),
@@ -321,19 +344,7 @@ class Lab:
         ids = set(series_ids) if series_ids is not None else set(self.series)
         if not ids or not ids <= self.series.keys():
             raise ValueError('Select at least one recorded series to export.')
-        output = io.StringIO(newline='')
-        writer = csv.writer(output)
-        writer.writerow(['run', 'time_s', 'device', 'device_id', 'sensor', 'unit', 'value', 'source',
-                         'device_hardware_name', 'serial'])
-        for p in self.points:
-            if p['series'] in ids:
-                s = self.series[p['series']]
-                # Do not let device-provided names become spreadsheet formulas.
-                safe = lambda text: "'" + text if text.startswith(('=', '+', '-', '@', '\t', '\r')) else text
-                writer.writerow([p['run'], p['t'], safe(s['device']), safe(s['device_id']),
-                                 safe(s['name']), safe(s['unit']), p['value'], 'demo' if s['demo'] else 'sensor',
-                                 safe(s['hardware_name']), safe(s['serial'] or '')])
-        return output.getvalue()
+        return wide_csv([s for key, s in self.series.items() if key in ids], self.points)
 
     def shutdown(self):
         self.stop()

@@ -6,6 +6,7 @@ let state = {devices: [], series: [], recording: false, total_points: 0, period_
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
 let graphs = [];
+let multiMode = false, layoutKey = 'physllama-layout';
 let connection = {status: 'idle'};
 let lastConnectionError = '';
 const connecting = () => ['connecting', 'retrying'].includes(connection.status);
@@ -16,7 +17,7 @@ function renderConnection() {
 }
 
 function saveLayout() {
-  try { localStorage.setItem('physllama-layout', JSON.stringify({title: $('#experiment-title').value,
+  try { localStorage.setItem(layoutKey, JSON.stringify({title: $('#experiment-title').value,
     graphs: graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}))})); } catch { /* Storage can be disabled. */ }
 }
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
@@ -25,6 +26,10 @@ async function request(path, body) {
     method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
   });
   if (!response.ok) {
+    if (response.status === 401 && multiMode) {
+      quitting = true;
+      window.location.reload();
+    }
     const data = await response.json().catch(() => ({}));
     throw new Error(typeof data.detail === 'string' ? data.detail : `Request failed (${response.status}). Check the selected settings.`);
   }
@@ -78,6 +83,9 @@ function selectedConfiguration() {
 }
 function applyState(next, withPoints) {
   state = next;
+  if (next.experiment_name && document.activeElement !== $('#experiment-title')) {
+    $('#experiment-title').value = next.experiment_name;
+  }
   if (next.generation !== generation) {
     generation = next.generation; cursor = 0; points.clear(); revision++;
     for (const graph of graphs) graph.fit++;
@@ -113,7 +121,8 @@ function renderControls() {
   $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
   for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
   $('#save-device-name').disabled = busy || connecting() || offline || state.recording;
-  $('#export').disabled = busy || connecting() || offline || !state.series.some(s => graphs.some(g => g.selected.includes(s.id)));
+  $('#export').disabled = busy || connecting() || offline || !state.series.length;
+  $('#end-group-button').disabled = busy || connecting() || offline;
   const options = new Map(graphChannelOptions().map(s => [s.id, s]));
   for (const graph of graphs) {
     $('.graph-export', graph.node).disabled = busy || connecting() || offline || !state.series.some(s => graph.selected.includes(s.id));
@@ -140,6 +149,7 @@ function renderDevices() {
   $('#devices').innerHTML = state.devices.map(d => {
     const inProgress = connecting() && connection.device_id === d.id;
     const disabled = busy || connecting() || offline || state.recording ? 'disabled' : '';
+    const reservedElsewhere = d.owned === false && Boolean(d.reserved_by);
     return `<article class="device-card" data-device="${esc(d.id)}">
       <div class="device-head"><span class="device-icon" aria-hidden="true">${d.demo ? '∿' : 'ᛒ'}</span><h3>${esc(d.name)}${d.demo ? '<br><span class="demo-label">SIMULATED DEVICE</span>' : ''}</h3></div>
       <div class="device-meta">${esc(d.family || 'Bluetooth')}
@@ -148,8 +158,10 @@ function renderDevices() {
         <div class="device-address">${d.demo ? 'Demo ID' : 'Bluetooth ID'}: <span>${esc(d.id)}</span></div>
         ${d.rssi != null ? `<div>Signal: ${d.rssi} dBm</div>` : ''}
       </div>
-      <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled}>${inProgress ? (connection.status === 'retrying' ? 'Retrying…' : 'Connecting…') : d.connected ? 'Disconnect' : 'Connect'}</button></div>
-      <button class="text-button rename-device" data-device-action="rename" ${disabled}>Rename device</button>
+      ${d.reserved_by ? `<p class="reservation-label">${reservedElsewhere ? `In use by ${esc(d.reserved_by)}` : 'Reserved for your group'}</p>` : ''}
+      <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled || (reservedElsewhere ? 'disabled' : '')}>${inProgress ? (connection.status === 'retrying' ? 'Retrying…' : 'Connecting…') : d.connected ? 'Disconnect' : reservedElsewhere ? 'In use' : 'Connect'}</button></div>
+      ${d.owned && !d.connected ? `<button class="text-button" data-device-action="disconnect" ${disabled}>Release device</button>` : ''}
+      <button class="text-button rename-device" data-device-action="rename" ${disabled || (d.owned === false ? 'disabled' : '')}>Rename device</button>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
       ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · choose what to record in a graph’s Sensors dropdown.</p>` : ''}
       ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
@@ -162,7 +174,7 @@ $('#devices').addEventListener('click', event => {
   const id = button.closest('[data-device]').dataset.device;
   if (button.dataset.deviceAction === 'rename') {
     const device = state.devices.find(d => d.id === id);
-    $('#rename-dialog').dataset.device = id;
+    $('#rename-dialog').dataset.deviceId = id;
     $('#device-name').value = device.nickname || '';
     $('#rename-identity').textContent = `${device.hardware_name || device.name}${device.serial ? ` · Device ID: ${device.serial}` : ''} · Bluetooth ID: ${id}`;
     $('#rename-error').textContent = '';
@@ -172,7 +184,7 @@ $('#devices').addEventListener('click', event => {
 });
 $('#rename-form').addEventListener('submit', async event => {
   event.preventDefault();
-  const success = await action('rename', {device_id: $('#rename-dialog').dataset.device, name: $('#device-name').value.trim()});
+  const success = await action('rename', {device_id: $('#rename-dialog').dataset.deviceId, name: $('#device-name').value.trim()});
   if (success) $('#rename-dialog').close();
   else $('#rename-error').textContent = $('#notice').textContent || 'Stop collection before renaming a device.';
 });
@@ -327,7 +339,7 @@ async function drawGraph(graph) {
       graph.listeners = true;
     }
     $('.legend', graph.node).innerHTML = channels.length ? channels.map(s => `<span class="legend-item"><i class="swatch" style="background:${colorFor(s.id)}"></i>${esc(s.name)}${channels.filter(c => c.name === s.name).length > 1 ? ` (${esc(s.device)})` : ''} <span class="muted">${esc(s.unit)}</span></span>`).join('') : '<span>No channels selected</span>';
-    $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Reduced display · export keeps all values' : 'Hover to inspect · time in seconds';
+    $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Reduced display · CSV uses full-resolution data' : 'Hover to inspect · time in seconds';
   } catch (error) { showNotice(`Graph could not be drawn: ${error.message}`); }
   finally { graph.drawing = false; }
 }
@@ -335,7 +347,7 @@ async function drawGraph(graph) {
 $('#scan').addEventListener('click', async () => {
   $('#scan-note').textContent = 'Searching for supported Bluetooth devices…';
   const success = await action('scan');
-  $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No supported devices found. Wake your device and try again.') : 'Search unavailable. Check Bluetooth on this computer.';
+  $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No supported devices found. Wake your device and try again.') : `Search unavailable. Check Bluetooth on ${multiMode ? 'the instructor’s' : 'this'} computer.`;
 });
 $('#demo').addEventListener('click', () => action('demo'));
 $('#start').addEventListener('click', () => action('start', {selections: selectedConfiguration(), period_ms: state.period_ms}));
@@ -347,13 +359,17 @@ $('#help-button').addEventListener('click', () => $('#help-dialog').showModal())
 $('[data-close="help-dialog"]').addEventListener('click', () => $('#help-dialog').close());
 $('[data-close="reset-dialog"]').addEventListener('click', () => $('#reset-dialog').close());
 $('#add-graph').addEventListener('click', () => { addGraph(); saveLayout(); renderControls(); });
-$('#experiment-title').addEventListener('change', saveLayout);
+$('#experiment-title').addEventListener('change', async event => {
+  event.target.value = event.target.value.trim() || 'Untitled experiment';
+  if (await action('experiment', {name: event.target.value})) saveLayout();
+});
 async function downloadCSV(selected, title) {
-  const ids = [...new Set(selected)].filter(id => state.series.some(s => s.id === id));
+  const ids = selected === null ? state.series.map(s => s.id)
+    : [...new Set(selected)].filter(id => state.series.some(s => s.id === id));
   if (!ids.length) return showNotice('Choose a recorded series on a graph before exporting.');
   try {
     const query = new URLSearchParams(ids.map(id => ['series', id]));
-    const response = await fetch(`/api/export?${query}`);
+    const response = await fetch(selected === null ? '/api/export' : `/api/export?${query}`);
     if (!response.ok) throw new Error('Export failed. Check the local server and try again.');
     const url = URL.createObjectURL(await response.blob());
     const anchor = document.createElement('a'); anchor.href = url;
@@ -361,7 +377,7 @@ async function downloadCSV(selected, title) {
     anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (error) { showNotice(error.message); }
 }
-$('#export').addEventListener('click', () => downloadCSV(graphs.flatMap(g => g.selected), $('#experiment-title').value));
+$('#export').addEventListener('click', () => downloadCSV(null, $('#experiment-title').value));
 async function poll() {
   if (quitting) return;
   try {
@@ -388,13 +404,79 @@ async function poll() {
   }
   setTimeout(poll, connecting() ? 500 : 250);
 }
-try {
-  const saved = JSON.parse(localStorage.getItem('physllama-layout') || localStorage.getItem('vernier-layout') || 'null');
-  if (saved?.title) $('#experiment-title').value = saved.title;
-  if (saved?.graphs?.length) saved.graphs.slice(0, 12).forEach(addGraph);
-} catch { /* Start a clean layout if local preferences are unavailable. */ }
-if (!graphs.length) addGraph();
-request('app').then(info => { $('#quit-button').hidden = !info.desktop; }).catch(() => {});
+async function openWorkspace() {
+  try {
+    const session = await request('session');
+    multiMode = session.multi;
+    $('#session-loading').hidden = true;
+    if (multiMode) {
+      $('.local-indicator').textContent = 'Instructor Bluetooth';
+      if (!session.group) {
+        $('#classroom-lobby').hidden = false;
+        return;
+      }
+      layoutKey = `physllama-layout:${session.group.id}`;
+      $('#group-banner').hidden = false;
+      $('#current-group-name').textContent = session.group.name;
+      $('#current-group-code').textContent = session.group.join_code;
+      $('#rename-scope').textContent = 'Leave blank to restore the advertised name. Nicknames belong to your group for this session; hardware IDs stay visible to everyone.';
+      $('.privacy-note').textContent = 'Your group’s measurements stay on the instructor’s computer. Export before ending your session.';
+      $('#sharing-note').textContent = 'Only teammates with your group code share your controls and measurements. Other groups work independently.';
+    }
+    $('#workspace').hidden = false;
+    try {
+      const saved = JSON.parse(localStorage.getItem(layoutKey) || (!multiMode && localStorage.getItem('vernier-layout')) || 'null');
+      if (saved?.title) $('#experiment-title').value = saved.title;
+      if (saved?.graphs?.length) saved.graphs.slice(0, 12).forEach(addGraph);
+    } catch { /* Start a clean layout if local preferences are unavailable. */ }
+    if (!graphs.length) addGraph();
+    request('app').then(info => { $('#quit-button').hidden = !info.desktop; }).catch(() => {});
+    poll();
+  } catch {
+    $('#session-loading').textContent = 'The server is unavailable. Retrying…';
+    setTimeout(openWorkspace, 2000);
+  }
+}
+
+async function enterGroup(path, body) {
+  const buttons = document.querySelectorAll('.group-form button');
+  for (const button of buttons) button.disabled = true;
+  $('#lobby-error').hidden = true;
+  try {
+    await request(path, body);
+    window.location.reload();
+  } catch (error) {
+    $('#lobby-error').textContent = error.message;
+    $('#lobby-error').hidden = false;
+    for (const button of buttons) button.disabled = false;
+  }
+}
+$('#create-group-form').addEventListener('submit', event => {
+  event.preventDefault();
+  enterGroup('groups', {name: $('#group-name').value.trim()});
+});
+$('#join-group-form').addEventListener('submit', event => {
+  event.preventDefault();
+  enterGroup('groups/join', {code: $('#group-code').value.trim()});
+});
+$('#end-group-button').addEventListener('click', () => {
+  $('#end-group-error').textContent = '';
+  $('#end-group-dialog').showModal();
+});
+$('[data-close="end-group-dialog"]').addEventListener('click', () => $('#end-group-dialog').close());
+$('#confirm-end-group').addEventListener('click', async () => {
+  $('#confirm-end-group').disabled = true;
+  quitting = true;
+  try {
+    await request('groups/end', {});
+    window.location.reload();
+  } catch (error) {
+    quitting = false;
+    $('#confirm-end-group').disabled = false;
+    $('#end-group-error').textContent = error.message;
+    poll();
+  }
+});
 $('#quit-button').addEventListener('click', () => $('#quit-dialog').showModal());
 $('[data-close="quit-dialog"]').addEventListener('click', () => $('#quit-dialog').close());
 $('#confirm-quit').addEventListener('click', async () => {
@@ -408,4 +490,4 @@ $('#confirm-quit').addEventListener('click', async () => {
     showNotice('PhysLlama has closed. You can close this tab.');
   } catch (error) { quitting = false; showNotice(error.message); poll(); }
 });
-poll();
+openWorkspace();

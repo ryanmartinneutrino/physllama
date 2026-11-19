@@ -9,6 +9,9 @@ import run
     (['--no-browser', '--port', '8081'], '127.0.0.1', 8081, False),
     (['--server'], '0.0.0.0', 8765, True),
     (['--server', '--port', '8081'], '0.0.0.0', 8081, True),
+    (['--multi'], '0.0.0.0', 8765, True),
+    (['--multi', '--port', '8081'], '0.0.0.0', 8081, True),
+    (['--multi', '--server', '--no-browser'], '0.0.0.0', 8765, True),
 ])
 def test_launcher_network_access_and_browser_behavior(monkeypatch, arguments, host, port, network_allowed):
     def unexpected_browser(*args, **kwargs):
@@ -23,6 +26,10 @@ def test_launcher_network_access_and_browser_behavior(monkeypatch, arguments, ho
             if network_allowed:
                 assert 'PhysLlama' in response.text
                 assert client.get('/static/app.js').status_code == 200
+                assert client.get('/api/session').json()['multi'] is ('--multi' in arguments)
+                if '--multi' in arguments:
+                    assert client.get('/api/state').status_code == 401
+                    assert client.post('/api/groups', json={'name': 'Launch test group'}).status_code == 200
                 assert client.post('/api/demo', headers={'Origin': f'http://lab-computer:{port}'}).status_code == 200
                 assert client.get('/api/state').json()['devices'][0]['connected']
                 for origin in ('http://other-computer:8081', 'http://lab-computer:9999'):
@@ -40,3 +47,11 @@ def test_invalid_port_rejected_before_launch(monkeypatch, port):
     with pytest.raises(SystemExit) as error:
         run.main(['--server', '--port', port])
     assert error.value.code == 2
+
+
+def test_desktop_bundle_forwards_explicit_classroom_arguments(monkeypatch):
+    import desktop
+    invoked = []
+    monkeypatch.setattr(run, 'main', lambda argv: invoked.append(argv))
+    desktop.main(['--multi', '--port', '8081'])
+    assert invoked == [['--multi', '--port', '8081']]

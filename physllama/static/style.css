@@ -67,3 +67,33 @@
 #rename-form label { display: block; margin: 20px 0 8px; font-size: 12px; }
 #device-name { width: 100%; padding: 10px; border: 1px solid #bccfdd; border-radius: 6px; font: inherit; }
 #rename-error { color: #945b32; font-size: 12px; }
+/* Classroom entry and group identity use the same workspace controls. */
+.session-loading { margin: 50px auto; text-align: center; color: #6a8397; }
+.classroom-lobby { max-width: 920px; margin: 0 auto; padding: 60px 28px; }
+.classroom-lobby h1 { font-size: 32px; letter-spacing: -.8px; margin: 12px 0; }
+.classroom-lobby > p { line-height: 1.8; }
+.group-forms { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin: 32px 0; }
+.group-form { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 28px; }
+.group-form label { display: block; font-size: 12px; font-weight: 600; margin: 24px 0 8px; }
+.group-form input { width: 100%; border: 1px solid #bfced9; border-radius: 7px; padding: 12px; font: inherit; }
+.group-form button { margin-top: 18px; }
+.group-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 12px 32px; background: #e4f2fc; border-bottom: 1px solid #c8dfef; color: #315c7a; }
+.group-banner strong { overflow-wrap: anywhere; }
+.group-banner .button { margin-left: auto; font-size: 11px; }
+.group-code-display { font-size: 11px; }
+.group-code-display code { display: inline-block; padding: 6px 9px; background: white; border-radius: 5px; font-size: 13px; user-select: all; }
+.reservation-label { font-size: 11px; color: #6b6a8e; line-height: 1.5; overflow-wrap: anywhere; }
+.experiment-name-label { display: block; cursor: text; }
+.experiment-name-label span { text-transform: none; letter-spacing: .2px; font-weight: 400; }
+.page-heading h1 #experiment-title { border-bottom: 1px dashed #b4cbdc; padding: 4px 0; border-radius: 0; }
+.page-heading h1 #experiment-title:hover, .page-heading h1 #experiment-title:focus { border-bottom-color: #2a75ad; background: #fff9; }
+#end-group-error { font-size: 12px; color: #945b32; }
+@media (max-width: 700px) {
+  .group-forms { grid-template-columns: 1fr; gap: 16px; }
+  .classroom-lobby { padding: 30px 20px; }
+  .classroom-lobby h1 { font-size: 26px; }
+  .group-form { padding: 22px; }
+  .group-banner { padding: 12px 20px; gap: 8px; }
+  .group-banner > div { width: 100%; }
+  .group-banner .button { margin-left: 0; padding-left: 0; }
+}

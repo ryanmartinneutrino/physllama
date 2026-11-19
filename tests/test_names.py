@@ -53,9 +53,10 @@ def test_rename_updates_graph_metadata_and_csv_but_keeps_series_ids():
         assert after['total_points'] == before['total_points']
         assert all(s['device'] == 'Bench 4' for s in after['series'])
         rows = list(csv.DictReader(io.StringIO(client.get('/api/export').text)))
-        assert {row['device'] for row in rows} == {'Bench 4'}
-        assert {row['device_id'] for row in rows} == {'demo-1'}
-        assert {row['device_hardware_name'] for row in rows} == {'Demo Motion & Force 1'}
+        columns = list(rows[0])[2:]
+        assert columns
+        assert all(column.startswith('Bench 4 — ') for column in columns)
+        assert all('demo-1/' in column and 'Demo Motion & Force 1' in column for column in columns)
         assert client.post('/api/rename', json={'device_id': 'unknown', 'name': 'x'}).status_code == 400
         assert client.post('/api/rename', json={'device_id': 'demo-1', 'name': 'x' * 61}).status_code == 422
         assert client.post('/api/rename', json={'device_id': 'demo-1', 'name': 'a\x00b'}).status_code == 400

@@ -4,7 +4,7 @@ A local web app for recording and exploring Bluetooth science devices. The curre
 
 ## Standalone installers (Windows and Mac)
 
-PhysLlama 0.3.0 is currently a source update; renamed installers have not been built or published. Run from source below, or build the following packages using the installer instructions. Existing [older releases](https://github.com/ryanmartinneutrino/vernierserver/releases) predate the PhysLlama name and do not contain these changes.
+PhysLlama 0.3.0 is currently a source update; renamed installers have not been built or published. Run from source below, or build the following packages using the installer instructions. Existing [older releases](https://github.com/ryanmartinneutrino/physllama/releases) predate the PhysLlama name and do not contain these changes.
 
 | Computer | Output filename |
 | --- | --- |
@@ -48,8 +48,8 @@ sudo apt install python3 python3-venv bluez
 Clone the public repository, then launch:
 
 ```bash
-git clone https://github.com/ryanmartinneutrino/vernierserver.git
-cd vernierserver
+git clone https://github.com/ryanmartinneutrino/physllama.git
+cd physllama
 ./start.sh
 ```
 
@@ -60,7 +60,8 @@ If you downloaded a ZIP, extract it and run `bash start.sh` in that directory.
 ```bash
 ./start.sh --no-browser              # open the URL yourself
 ./start.sh --port 8767               # use a different port
-./start.sh --server --port 8080      # listen on all IPv4 interfaces, without opening a browser
+./start.sh --server --port 8080      # one shared experiment on the network
+./start.sh --multi --port 8080       # independent student groups, instructor Bluetooth
 ```
 
 With `--server`, open `http://<server-IP>:8080` from another computer on the network (use your chosen port). The default port is 8765. Bluetooth still runs on the server computer, so the sensors must be within its Bluetooth range. All clients share the same experiment and can control collection. Server mode has no login; use it on a trusted network. Without `--server`, the launcher listens only on `127.0.0.1`.
@@ -77,26 +78,32 @@ Smart Cart channels are position, force, acceleration X/Y/Z/resultant, and deriv
 
 PASCO reads are polled, not buffered high-rate streaming. The sampling interval is a requested minimum spacing (20–10,000 ms); actual acquisition is limited by Bluetooth round trips and selected sensor groups. Position-only reads are fastest; force and acceleration add requests. The original cart app observed roughly 60 ms per sensor group, but actual rates depend on the host and device. Choose position or derived velocity/speed alone when timing matters. Battery status comes from unsolicited device packets and may take time to arrive. A charging device’s voltage-derived percentage can read high.
 
-Choose **Rename device** while stopped to assign a display name such as “Bench 3 — red cart.” Leave it blank to restore the advertised name. Names appear in graphs and CSV but never replace the displayed hardware identity or change connection selection. Names survive refresh, disconnect, rescan, Reset and app restart; they are shared by browsers connected to the same PhysLlama service. They do not rename the device’s Bluetooth advertisement.
+Choose **Rename device** while stopped to assign a display name such as “Bench 3 — red cart.” Leave it blank to restore the advertised name. Names appear in graphs and CSV but never replace the displayed hardware identity or change connection selection. In default single mode, names survive refresh, disconnect, rescan, Reset and app restart; they are shared by browsers connected to the same PhysLlama service. In `--multi` mode, nicknames belong to the group and last for that group’s session. They do not rename the device’s Bluetooth advertisement.
 
 Saved names live in `device-names.json` under `%LOCALAPPDATA%/PhysLlama` on Windows, `~/Library/Application Support/PhysLlama` on Mac, and `$XDG_CONFIG_HOME/physllama` (normally `~/.config/physllama`) on Linux. `PHYSLLAMA_DATA_DIR` overrides that directory. The Bluetooth ID is host-specific on some operating systems, so copying this file between computers is not a portable device assignment mechanism.
 
-Pasco validation currently uses mocked Bluetooth packets with the actual SDK decoder; **new physical-device testing is still required**. On Windows and both Mac variants, scan two carts, identify each by its printed serial, rename them, record position/force/acceleration and derived speed, stop/resume, export, disconnect/reconnect, and verify that powering off one cart stops the run while retaining earlier samples. Test other sensor models with their actual hardware before classroom use.
+The PASCO start-timeout fix explicitly preserves the original cart app’s write-without-response transport mode (Bleak changed its default after 0.20.2), accepts main-service measurement replies, and grants each sensor request its own timeout. Regression tests use mocked Bluetooth packets with the actual SDK decoder; **new physical-device testing is still required**. On Windows and both Mac variants, scan two carts, identify each by its printed serial, rename them, record position/force/acceleration and derived speed, stop/resume, export, disconnect/reconnect, and verify that powering off one cart stops the run while retaining earlier samples. Test other sensor models with their actual hardware before classroom use.
 
 ## Instructor server and independent student workspaces
 
-**Current server mode is one shared experiment.** Every browser reaches the same `Lab`, device connections, selection, recording controls, data and exports. Titles and graph layouts are saved separately in each browser, but this does not isolate acquisition: a student can stop or reset everyone’s shared run. New URLs or separate browser tabs alone would not change that. This mode suits an instructor demonstration or a group controlling one experiment.
+Default launch still opens one local experiment using that computer’s Bluetooth. For students who cannot install the app, run this on the instructor’s computer:
 
-The planned classroom mode uses the instructor’s Bluetooth adapter for all devices, with an independent experiment for each student or group. The same website serves each workspace. This is a further backend feature and needs:
+```bash
+./start.sh --multi --port 8080
+# Or, in an activated Python environment:
+python run.py --multi --port 8080
+```
 
-- A workspace identity and join code/session cookie, with per-workspace runs, selections, sampling settings, errors, exports and saved graph layouts. The same app can serve each workspace; separate website code is unnecessary.
-- A shared Bluetooth manager that scans once, tracks an exclusive owner for each device, checks ownership for every connect/configure/start/stop/rename operation, and visibly marks devices in use by another group. This must be enforced by the server, not just by hiding buttons.
-- Roles for students and instructors, plus a policy for joining a group, reconnecting after a browser refresh, releasing abandoned reservations, retaining/exporting data, limiting memory and handling disconnects. Instructor shutdown and cross-workspace actions must be protected.
-- Per-device scheduling that allows one workspace to record while another connects or stops. The current global `require_idle` and global stop-on-device-error must become workspace-specific. PASCO’s device workers already help with isolation, but Go Direct and shared scan/connection handling need coordination.
+Students open `http://<instructor-IP>:8080` on the same network. Allow the chosen port through the instructor’s firewall. `--multi` implies network serving and does not open a browser automatically. Plain `--server` remains available for a single shared demonstration experiment.
 
-All Bluetooth in that design still belongs to the **server computer**, with its range, radio bandwidth and OS connection limits. A remote webpage does not give the Python server access to the student laptop’s Bluetooth. Capacity should be measured with the intended class size; no class-wide connection count is guaranteed.
+1. One student creates a named group for the workbench. Teammates join with the displayed group code. A browser keeps its group through refreshes; different groups should use different browser profiles/devices.
+2. Search using the instructor’s Bluetooth. Match the advertised name, Bluetooth ID and printed PASCO serial to the actual device on the workbench. Connecting reserves that device exclusively for this group. Other groups see who has reserved it and cannot connect, rename, configure or release it.
+3. Each group independently names its experiment, chooses channels and sampling settings, starts/stops, resets and exports. A device failure stops only its group. Teammates share acquisition and experiment names; graph layouts are local to each browser and group. Device nicknames are group-local in this mode.
+4. Disconnect releases a device for another group. **End group session** stops and releases all of that group’s devices and deletes its data, after confirmation. Export first. Students cannot quit the instructor’s server from the browser; stop it in the instructor’s terminal.
 
-This instructor-hosted design does not require student-side Bluetooth software or browser Bluetooth drivers. Students would join their own workspace, reserve the device IDs on their workbench, choose sensors and sampling settings, and start/stop/export their experiment independently. A Stop, Reset or device failure in one workspace must not affect another. Multiple backend processes on different ports would separate data today, but would still compete for the same host Bluetooth adapter and lack device reservation enforcement; that is not a complete classroom solution.
+The server permits up to **16 groups**, each limited to **250,000 recorded channel values**. After **30 minutes without authenticated requests**, an abandoned group stops recording and releases its devices. Its measurements and join code remain available until the group is ended or the server exits. An open connected page keeps its group active. Failed disconnections retain the reservation until the connection can be safely released.
+
+Group codes grant access to that group’s controls and measurements; share them only with teammates. This is intended for a trusted classroom network, without instructor accounts or an administration dashboard. All Bluetooth belongs to the **instructor’s computer**, including its range, bandwidth and OS connection limits. The 16-group software limit is not a guarantee of 16 simultaneous Bluetooth connections. Physical testing with the intended devices and group count is still required.
 
 ## Bluetooth connection help
 
@@ -110,9 +117,10 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 - Check sensors in the graphs’ **Sensors** dropdowns, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
 - **Start collection** starts a new run and the scientist llama runs beside the collection status. **Stop** keeps the data and returns the llama to its standing pose. Errors and lost server connections also stop the animation; reduced-motion preferences keep it still while the text reports the recording state. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
 - Each graph has a **Sensors** dropdown with checkboxes grouped by device. The union of checked sensors across all graphs determines what the next run records, with each sensor recorded once even when used on multiple graphs. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. All supported connected sensors are available directly in the dropdown. While recording, you can show or hide already-recorded channels; stop first to add a previously unrecorded sensor. Removing a graph or hiding a trace does not interrupt the current run, but changes the selection for the next Start. Different units use separate labeled axes; series with the same units share an axis.
+- Click the **experiment name** at the top to rename the experiment. The name is shared with teammates and used in the top CSV filename.
 - Graphs have a single editable title. Automatic titles renumber after deletion; custom titles survive deletion of other graphs and page reloads.
 - Scroll to zoom, drag a zoom rectangle, or select pan in the Plotly toolbar. Hover for the sensor, value, units, time, and run. Zooming switches off **Follow live**. **Fit view** resets the axes; check **Follow live** to keep fitting new samples.
-- **Download CSV** on a graph exports only that graph’s checked sensors, including their full recorded history regardless of zoom or display reduction. Its filename includes the graph title. **Export CSV** at the top exports the combined selection across all graphs. The Plotly camera button exports a graph as an image.
+- **Download CSV** on a graph exports only that graph’s checked sensors, across all recorded runs, regardless of zoom or display reduction. Its filename includes the graph title. **Export CSV** at the top exports **every recorded channel**, including channels no longer shown on any graph. The Plotly camera button exports a graph as an image.
 - **Reset** asks before removing all collected runs. It preserves device connections and the graph layout.
 - The battery reading comes from the device when connected. Click its **refresh** label while stopped to update it. No battery percentage is invented for demo devices or devices with an unavailable reading.
 
@@ -122,22 +130,27 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 
 The app records SDK-decoded measurements without extra scaling or calibration. Smart Cart position is zeroed at the first sample of each run, matching the previous cart app; its derived velocity and speed use a rolling least-squares fit to the last three position samples. Derivative history is cleared on every Start, so it never spans a pause. Initial or unavailable derivatives are missing values, not invented zeros. Other measurements have no additional zero offset. An empty unit field is labeled `a.u.` (arbitrary units). Device calibration is handled by the device firmware and its adapter library. Advanced calibration workflows and aperiodic/event channels are not implemented.
 
-CSV is in long format:
+CSV is in **wide format**: one row per time, one column per recorded sensor channel, plus `run` and `time_s`. For example:
 
 ```text
-run,time_s,device,device_id,sensor,unit,value,source,device_hardware_name,serial
-1,0.000014,Bench 1,demo-1,Force,N,0.0,demo,Demo Motion & Force 1,
+run,time_s,Bench 1 — Force [N] (cart-a/1001; 123-456; Smart Cart),Bench 2 — Position [m] (cart-b/3001; 654-321; Smart Cart)
+1,0.05,1.25,0.12
+1,0.10,1.30,0.15
 ```
 
-Each row is one channel value, with full numeric precision and a `sensor` or `demo` source label. `device` is the current display name; `device_id` is the immutable transport identity, `device_hardware_name` is the original advertised name, and `serial` is the printed PASCO ID when available. Renaming updates display names for this session’s recorded series without changing their IDs or values. Missing/non-finite measurements export as empty values. `time_s` is relative to the first Start and includes pauses. Samples are ordered by receipt; each channel has its own time sequence.
+Headers include the current device nickname, channel name, unit, immutable channel/device ID, original advertised name when different, and printed PASCO serial when available. Demo columns also include `DEMO`. Renaming changes the header without changing raw samples or their identities. `time_s` is relative to the first Start and includes pauses; `run` distinguishes recording runs.
+
+To align different sampling rates, each run uses the union of actual sample times **within the overlapping valid time range** of its recorded channels. Values at their own timestamps are retained; values between two valid samples are linearly interpolated. This normally produces a completely filled table without downsampling faster channels. It trims the non-overlapping beginning/end of a run, including initial unavailable derived velocity. Exporting a single channel retains its own valid time range. This is an alignment for plotting, not additional measured data or hardware synchronization; raw timestamps and measurements remain unchanged in the graphs and state API.
+
+Interpolation never crosses a Stop/Start boundary, an explicitly missing sample, or a channel’s measured endpoints. Channels not recorded in a particular run stay blank for that run. If channels have no overlapping time range, their available samples are retained with blanks. These exceptional blanks represent genuinely unavailable data; no zeros or extrapolated measurements are invented.
 
 For Go Direct and demo devices, sample times are reconstructed from the requested sampling interval and the host's monotonic time immediately before each device's Start command. PASCO samples use the midpoint of the host-monotonic request/response interval, as in the Smart Cart app; their actual, potentially irregular spacing is preserved. Reading multiple sensor groups involves separate Bluetooth requests, so one batch timestamp is an approximation, not synchronized acquisition across its channels. Devices are **not hardware synchronized**, so there can be Bluetooth command latency between their actual starts. This is suitable for introductory force/motion exploration, not precise cross-device phase measurements. Reported dropped-sample packets stop collection with an error instead of silently compressing the time axis. A connection loss or data timeout also stops collection and preserves prior samples.
 
-Data lives in the local service's memory. Refreshing or reopening the browser recovers the current session; exiting the service loses it. Export before stopping the app. The session stops at **250,000 channel values** without discarding earlier samples. Large graphs use min/max display reduction after 4,000 values per series; CSV always includes every recorded value. Titles and graph preferences are saved in browser storage.
+Data lives in the local service's memory. Refreshing or reopening the browser recovers the current session; exiting the service loses it. Export before stopping the app. The session stops at **250,000 channel values** without discarding earlier samples. Large graphs use min/max display reduction after 4,000 values per series; CSV alignment uses full-resolution data, independent of display reduction, subject to the overlapping-range rule above. Experiment names live with the experiment; graph preferences are saved in browser storage.
 
 ## Verification status
 
-The automated backend tests cover multi-device acquisition, units and filtered CSV, resume/reset, range/granularity/conflict checks, rollback after a failed Start, data preservation on disconnect, session limits, demo isolation, origin checks, SDK packet parsing, retry limits, partial-connection cleanup, timeouts, and connection progress while the Bluetooth worker is busy. Browser tests exercise the actual UI: device/channel controls, mixed-unit graphs, zoom/hover/fit, export, refresh recovery, reset, error messages, and a narrow viewport.
+The automated backend tests cover independent group acquisition, exclusive device reservations, abandoned-session release, cancellation during connection, mixed-rate wide CSV and missing-data rules, PASCO command write mode, multi-device acquisition, units and filtered CSV, resume/reset, range/granularity/conflict checks, rollback after a failed Start, data preservation on disconnect, session limits, demo isolation, origin checks, SDK packet parsing, retry limits, partial-connection cleanup, timeouts, and connection progress while the Bluetooth worker is busy. Browser tests exercise the actual UI with two separate groups and a teammate, experiment naming, export scope, device/channel controls, mixed-unit graphs, zoom/hover/fit, export, refresh recovery, reset, error messages, and a narrow viewport.
 
 **Windows and Mac installers and Bluetooth connections have been user-tested with v0.2.1.** The development Linux computer still has no usable Bluetooth adapter. For PhysLlama 0.3.0, repeat this physical-device smoke test, including the Mac connection retries:
 
@@ -159,13 +172,15 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-If Chromium is already installed in a nonstandard location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its executable. Browser tests start an isolated service on port 8766. `npm run vendor` updates the tracked Plotly asset from the pinned package.
+If Chromium is already installed in a nonstandard location, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its executable. Browser tests start isolated single-instance and classroom services on ports 8766 and 8767. `npm run vendor` updates the tracked Plotly asset from the pinned package.
 
 ```text
 desktop.py                   Bundled desktop entry point and graceful shutdown
-run.py                       Command-line launcher; optional network server mode
+run.py                       Command-line launcher; --server or --multi network modes
 start.sh                     Linux/macOS virtualenv setup and launch
 physllama/server.py          HTTP API and static asset serving
+physllama/classroom.py       Group sessions and exclusive Bluetooth reservations
+physllama/csv_export.py      Wide CSV with per-run interpolation
 physllama/acquisition.py     Serialized Bluetooth worker and session store
 physllama/hardware.py        Shared Bluetooth scan and device registry
 physllama/devices/base.py    InputDevice, BluetoothDriver, Channel and Reading contracts
@@ -180,7 +195,7 @@ scripts/build_installers.py  Offline Windows/Mac installer assembly
 tests/                       Backend and browser tests
 ```
 
-The Lab worker serializes session operations and Go Direct SDK calls. Each PASCO device owns its own worker and BLE event loop, reusing the Smart Cart app’s design, so its request/response latency does not block another cart or the HTTP state endpoint. PASCO workers return timestamped batches through bounded queues. Stop waits for the current bounded read (at most two seconds for a normal polling cycle), then stops further polling. Bluetooth discovery and connection requests remain serialized through Lab. The browser polls bounded incremental batches and can rebuild its state after a reload. By default the service binds to `127.0.0.1` and accepts local hostnames only. `--server` binds to `0.0.0.0` and accepts network hostnames; both modes reject requests with an Origin that differs from the request's host. Multiple tabs and clients share one experiment.
+The Lab worker serializes session operations and Go Direct SDK calls. Each PASCO device owns its own worker and BLE event loop, reusing the Smart Cart app’s design, so its request/response latency does not block another cart or the HTTP state endpoint. PASCO workers return timestamped batches through bounded queues. Stop waits for the current bounded polling cycle (up to two seconds per requested sensor group), then stops further polling. In single mode, Bluetooth discovery and connection requests remain serialized through Lab; in multi mode, a classroom radio lock serializes discovery/connection across groups while each group has its own Lab worker. The browser polls bounded incremental batches and can rebuild its state after a reload. By default the service binds to `127.0.0.1` and accepts local hostnames only. `--server` binds to `0.0.0.0` and accepts network hostnames; both modes reject requests with an Origin that differs from the request's host. Multiple tabs and clients share one experiment in default and `--server` modes; `--multi` isolates experiments by group.
 
 The adapter includes focused compatibility fixes for godirect 1.2.1: BLE notification reassembly, full 32-bit channel masks, correct single-channel routing, and explicit dropped-sample handling. Metadata packets are skipped, including during command responses. Hardware validation is still required on the target sensor.
 

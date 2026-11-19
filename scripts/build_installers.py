@@ -87,7 +87,7 @@ def make_mac(target, workspace, runtime, uv, output):
     macos = bundle / 'Contents/MacOS'
     macos.mkdir(parents=True)
     launcher = macos / 'PhysLlama'
-    launcher.write_text('#!/bin/sh\nset -eu\nresources="$(CDPATH= cd -- "$(dirname -- "$0")/../Resources" && pwd)"\nexec "$resources/python/bin/python3" -I "$resources/app/desktop.py"\n')
+    launcher.write_text('#!/bin/sh\nset -eu\nresources="$(CDPATH= cd -- "$(dirname -- "$0")/../Resources" && pwd)"\nexec "$resources/python/bin/python3" -I "$resources/app/desktop.py" "$@"\n')
     launcher.chmod(0o755)
     info = {'CFBundleName': 'PhysLlama', 'CFBundleDisplayName': 'PhysLlama',
             'CFBundleIdentifier': 'org.physllama.desktop', 'CFBundleVersion': VERSION,

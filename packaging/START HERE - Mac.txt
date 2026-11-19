@@ -42,4 +42,4 @@ PHYSLLAMA — MAC INSTALLATION
    the new app into place. Your recorded data is lost when the app quits.
 
 Diagnostics: ~/Library/Logs/PhysLlama/app.log
-Downloads: https://github.com/ryanmartinneutrino/vernierserver/releases
+Downloads: https://github.com/ryanmartinneutrino/physllama/releases
