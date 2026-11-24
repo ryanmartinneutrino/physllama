@@ -1,3 +1,5 @@
+import {attachAnalysis} from './analysis-ui.js';
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const colors = ['#1e5480', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6596bf', '#c76e76'];
@@ -22,7 +24,7 @@ function renderConnection() {
 
 function saveLayout() {
   try { localStorage.setItem(layoutKey, JSON.stringify({title: $('#experiment-title').value,
-    graphs: graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}))})); } catch { /* Storage can be disabled. */ }
+    graphs: graphs.map(({title, customTitle, selected, follow, scope}) => ({title, customTitle, selected, follow, scope}))})); } catch { /* Storage can be disabled. */ }
 }
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
 async function request(path, body) {
@@ -115,6 +117,10 @@ function recordingConfiguration(periods = {}) {
   }));
 }
 function applyState(next, withPoints) {
+  if (state.run !== next.run || state.recording !== next.recording) {
+    revision++;
+    for (const graph of graphs) if (graph.scope === 'current' && state.run !== next.run) graph.fit++;
+  }
   state = next;
   // Recorded history remains exportable, but only connected devices are graph inputs.
   const available = new Set(availableChannels().map(s => s.id));
@@ -347,10 +353,19 @@ $('[data-close="rename-dialog"]').addEventListener('click', () => $('#rename-dia
 function addGraph(saved = {}) {
   const customTitle = saved.customTitle ?? Boolean(saved.title && !/^Graph \d+$/.test(saved.title));
   const graph = {id: ++graphCounter, title: customTitle ? saved.title : `Graph ${graphs.length + 1}`, customTitle, selected: saved.selected || [],
-    follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
+    follow: saved.follow ?? true, scope: saved.scope === 'current' ? 'current' : 'all', fit: 0, dirty: true, lastRevision: -1, drawing: false};
   const node = document.createElement('article'); node.className = 'graph';
-  node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot-area"><div class="plot"></div><div class="hover-marks" aria-hidden="true"></div></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
+  node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit the selected runs in view">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot-area"><div class="plot"></div><div class="hover-marks" aria-hidden="true"></div></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
+  graph.analysis = attachAnalysis(graph, () => ({
+    revision, generation, recording: state.recording, run: state.run,
+    range: $('.plot', node)._fullLayout?.xaxis.range?.slice(),
+    channels: availableChannels().filter(s => graph.selected.includes(s.id)).map(s => ({
+      ...s, color: colorFor(s.id), samples: graphSamples(graph, s.id),
+    })),
+  }), scope => {
+    graph.scope = scope; graph.fit++; graph.dirty = true; drawGraph(graph); saveLayout();
+  });
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
     const plot = $('.plot', node);
@@ -373,6 +388,7 @@ function addGraph(saved = {}) {
   $('.remove', node).addEventListener('click', () => {
     if (graphs.length === 1) return showNotice('Keep at least one graph in your workspace.');
     graph.resizeObserver.disconnect();
+    graph.analysis.dispose();
     Plotly.purge($('.plot', node)); node.remove(); graphs = graphs.filter(g => g !== graph);
     renumberGraphs(); saveLayout(); renderControls();
   });
@@ -426,6 +442,10 @@ function updateSelectionCount(graph) {
   const count = availableChannels().filter(s => graph.selected.includes(s.id)).length;
   $('.selection-count', graph.node).textContent = `${count} selected`;
 }
+function graphSamples(graph, id) {
+  const data = points.get(id) || [];
+  return graph.scope === 'current' ? data.filter(p => p.run === state.run) : data;
+}
 // Min/max bucket reduction keeps extrema visible; CSV uses full-resolution data.
 function displayPoints(data) {
   if (data.length <= 4000) return data;
@@ -467,7 +487,7 @@ async function drawGraph(graph) {
   const units = [...new Set(channels.map(s => s.unit))];
   const plot = $('.plot', graph.node);
   const traces = channels.map(s => {
-    const data = displayPoints(points.get(s.id) || []), x = [], y = [], runs = [];
+    const data = displayPoints(graphSamples(graph, s.id)), x = [], y = [], runs = [];
     for (const point of data) { x.push(point.t); y.push(point.value); runs.push(point.run); }
     const unitIndex = units.indexOf(s.unit);
     return {x, y, customdata: runs, name: `${s.device} · ${s.name}`, type: 'scatter', mode: 'markers',
@@ -475,6 +495,9 @@ async function drawGraph(graph) {
       marker: {color: colorFor(s.id), size: 5}, yaxis: unitIndex ? `y${unitIndex + 1}` : 'y',
       hovertemplate: `${esc(s.name)}: <b>%{y:.4g} ${esc(s.unit)}</b><br>%{x:.4f} s · run %{customdata}<extra>${esc(s.device)}</extra>`};
   });
+  const hasData = traces.some(t => t.x.length);
+  if (hasData && graph.hadData === false) graph.fit++;
+  graph.hadData = hasData;
   const axis = {gridcolor: '#eef0f2', zerolinecolor: '#dbe1e6', tickfont: {size: 10, color: '#909aa2'},
     title: {font: {size: 11, color: '#808e9a'}, standoff: 10}, showline: false, automargin: true};
   const layout = {autosize: true, paper_bgcolor: 'white', plot_bgcolor: 'white', font: {family: 'Inter, Segoe UI, sans-serif', color: '#455765'},
@@ -488,10 +511,9 @@ async function drawGraph(graph) {
     layout[`yaxis${i + 2}`] = {...axis, title: {...axis.title, text: unit}, overlaying: 'y', side: 'right',
       anchor: 'free', position: 1, shift: i * 60, showgrid: false};
   });
-  const hasData = traces.some(t => t.x.length);
   // Mark where each run begins once there is more than one.
   if (hasData && runStarts.size > 1) {
-    const starts = [...runStarts].sort((a, b) => a[0] - b[0]);
+    const starts = [...runStarts].filter(([run]) => graph.scope !== 'current' || run === state.run).sort((a, b) => a[0] - b[0]);
     layout.shapes = starts.map(([, t]) => ({type: 'line', xref: 'x', yref: 'paper', x0: t, x1: t, y0: 0, y1: 1,
       line: {color: '#b9c4cd', width: 1, dash: 'dot'}, layer: 'below'}));
     layout.annotations = starts.map(([run, t]) => ({x: t, xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'left',
@@ -514,6 +536,7 @@ async function drawGraph(graph) {
           graph.follow = false; $('.follow input', graph.node).checked = false; saveLayout();
         }
         placeHoverMarks(graph);
+        if (!graph.drawing) graph.analysis.update();
       });
       plot.on('plotly_hover', event => {
         graph.hovered = event.points.map(point => ({x: point.x, y: point.y, xaxis: point.xaxis._name,
@@ -527,12 +550,18 @@ async function drawGraph(graph) {
     if (!plot.querySelector('.hoverlayer')?.childElementCount) graph.hovered = [];
     placeHoverMarks(graph);
     $('.legend', graph.node).innerHTML = channels.length ? channels.map(s => `<span class="legend-item"><i class="swatch" style="background:${colorFor(s.id)}"></i>${esc(s.name)}${channels.filter(c => c.name === s.name).length > 1 ? ` (${esc(s.device)})` : ''} <span class="muted">${esc(s.unit)}</span></span>`).join('') : '<span>No channels selected</span>';
-    $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Showing the minimum and maximum sample in each time bucket · CSV contains every sample' : 'Each point is one recorded sample · hover to inspect';
+    $('.plot-note', graph.node).textContent = channels.some(s => graphSamples(graph, s.id).length > 4000) ? 'Showing the minimum and maximum sample in each time bucket · CSV contains every sample' : 'Each point is one recorded sample · hover to inspect';
   } catch (error) {
     // A graph removed mid-draw (closed, or replaced by an opened experiment) is not an error.
     if (graphs.includes(graph)) showNotice(`Graph could not be drawn: ${error.message}`);
   }
-  finally { graph.drawing = false; }
+  finally {
+    graph.drawing = false;
+    if (graphs.includes(graph)) {
+      graph.analysis.update();
+      if (graph.dirty || graph.lastRevision !== revision) drawGraph(graph);
+    }
+  }
 }
 
 $('#scan').addEventListener('click', async () => {
@@ -595,10 +624,11 @@ async function downloadCSV(selected, title) {
   } catch (error) { showNotice(error.message); }
 }
 $('#export').addEventListener('click', () => downloadCSV(null, $('#experiment-title').value));
-const graphLayout = () => graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}));
+const graphLayout = () => graphs.map(({title, customTitle, selected, follow, scope}) => ({title, customTitle, selected, follow, scope}));
 function replaceGraphs(saved) {
   for (const graph of graphs) {
     graph.resizeObserver.disconnect();
+    graph.analysis.dispose();
     Plotly.purge($('.plot', graph.node)); graph.node.remove();
   }
   graphs = []; graphCounter = 0;
@@ -606,7 +636,7 @@ function replaceGraphs(saved) {
   const valid = (Array.isArray(saved) ? saved : []).filter(g => g && typeof g === 'object').slice(0, 12).map(g => ({
     title: typeof g.title === 'string' ? g.title.slice(0, 50) : '', customTitle: g.customTitle === true,
     selected: Array.isArray(g.selected) ? [...new Set(g.selected.filter(id => typeof id === 'string'))] : [],
-    follow: g.follow !== false}));
+    follow: g.follow !== false, scope: g.scope === 'current' ? 'current' : 'all'}));
   (valid.length ? valid : [{}]).forEach(addGraph);
   renumberGraphs(); saveLayout(); renderControls(); renderDevices();
 }

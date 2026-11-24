@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
+    "test:analysis": "node --test tests/frontend/*.test.mjs",
     "test:ui": "playwright test"
   },
   "devDependencies": {
