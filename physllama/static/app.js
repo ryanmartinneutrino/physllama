@@ -4,6 +4,8 @@ const colors = ['#1e5480', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6596bf'
 const points = new Map();
 // Latest-run timing per series: {run, first, last, n}. Used to report achieved rates.
 const runStats = new Map();
+// First sample time of each run, for marking run starts on graphs.
+const runStarts = new Map();
 let state = {devices: [], series: [], recording: false, total_points: 0};
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
@@ -130,13 +132,14 @@ function applyState(next, withPoints) {
     $('#experiment-title').value = next.experiment_name;
   }
   if (next.generation !== generation) {
-    generation = next.generation; cursor = 0; points.clear(); runStats.clear(); revision++;
+    generation = next.generation; cursor = 0; points.clear(); runStats.clear(); runStarts.clear(); revision++;
     for (const graph of graphs) graph.fit++;
   }
   if (withPoints) {
     for (const point of next.points) {
       if (!points.has(point.series)) points.set(point.series, []);
       points.get(point.series).push(point);
+      if (!(runStarts.get(point.run) <= point.t)) runStarts.set(point.run, point.t);
       const stats = runStats.get(point.series);
       if (!stats || stats.run !== point.run) runStats.set(point.series, {run: point.run, first: point.t, last: point.t, n: 1});
       else { stats.last = point.t; stats.n++; }
@@ -201,6 +204,14 @@ function renderControls() {
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
   $('#samples').textContent = (state.total_points || 0).toLocaleString();
   $('#channels').textContent = channels;
+  const run = state.run || 0;
+  $('#run-number').innerHTML = run ? `${run} <small>${state.recording ? 'recording' : 'stopped'}</small>` : '–';
+  $('#start').title = `Start run ${run + 1}`;
+  const started = runStarts.get(run);
+  $('#run-note').textContent = state.recording
+    ? `Recording run ${run}${started != null ? `, which began at ${started.toFixed(2)} s` : ''}. Stop ends the run.`
+    : run ? `${run} run${run > 1 ? 's' : ''} recorded. Start begins run ${run + 1}. Time keeps counting from the first Start while stopped, so run ${run + 1} appears after a gap.`
+    : 'Each Start begins a new run. Time is measured from the first Start and keeps counting while stopped.';
   $('#status').textContent = offline ? 'Server unavailable' : connecting() ? 'Connecting…' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
   $('#status-dot').classList.toggle('recording', state.recording && !offline);
   $('#acquisition-llama').classList.toggle('running', state.recording && !offline);
@@ -470,7 +481,7 @@ async function drawGraph(graph) {
     margin: {l: 60, r: Math.max(25, (units.length - 1) * 65), t: 28, b: 48},
     showlegend: false, hovermode: 'x unified', dragmode: 'zoom', uirevision: `${generation}-${graph.fit}`,
     datarevision: revision, hoverlabel: {bgcolor: '#fff', bordercolor: '#dae2e9', font: {size: 11}},
-    xaxis: {...axis, title: {...axis.title, text: 'Time (s)'}, autorange: graph.follow ? true : undefined},
+    xaxis: {...axis, title: {...axis.title, text: 'Time since first Start (s)'}, autorange: graph.follow ? true : undefined},
     yaxis: {...axis, title: {...axis.title, text: units[0] || 'Value'}},
   };
   units.slice(1).forEach((unit, i) => {
@@ -478,6 +489,14 @@ async function drawGraph(graph) {
       anchor: 'free', position: 1, shift: i * 60, showgrid: false};
   });
   const hasData = traces.some(t => t.x.length);
+  // Mark where each run begins once there is more than one.
+  if (hasData && runStarts.size > 1) {
+    const starts = [...runStarts].sort((a, b) => a[0] - b[0]);
+    layout.shapes = starts.map(([, t]) => ({type: 'line', xref: 'x', yref: 'paper', x0: t, x1: t, y0: 0, y1: 1,
+      line: {color: '#b9c4cd', width: 1, dash: 'dot'}, layer: 'below'}));
+    layout.annotations = starts.map(([run, t]) => ({x: t, xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'left',
+      text: `Run ${run}`, showarrow: false, font: {size: 10, color: '#7d8a95'}}));
+  }
   if (!hasData) {
     layout.xaxis.range = [0, 10]; layout.xaxis.autorange = false;
     layout.yaxis.range = [-5, 5];
