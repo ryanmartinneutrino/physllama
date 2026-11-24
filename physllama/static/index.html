@@ -41,8 +41,8 @@
     <button id="end-group-button" class="button quiet">End group session</button>
   </section>
   <div id="workspace" class="workspace" hidden>
-    <aside class="sidebar">
-      <div class="section-heading"><h2>Devices</h2><span id="device-count" class="count">0</span></div>
+    <aside id="device-sidebar" class="sidebar" aria-label="Devices">
+      <div class="sidebar-heading"><div class="section-heading"><h2>Devices</h2><span id="device-count" class="count">0</span></div><button id="hide-devices" class="button quiet" type="button" aria-label="Hide devices" title="Hide devices to make more room for graphs" aria-controls="device-sidebar" aria-expanded="true">Hide <span aria-hidden="true">‹</span></button></div>
       <p class="muted small">Discover and connect supported Bluetooth devices.</p>
       <button id="scan" class="button scan full"><span aria-hidden="true">⌕</span> Search for devices</button>
       <div id="scan-note" class="small muted" role="status">Turn on your sensor, then search.</div>
@@ -53,6 +53,7 @@
       <div class="sidebar-bottom"><div class="demo-card"><div class="demo-heading"><span class="small-icon" aria-hidden="true">∿</span><strong>Demo device</strong></div><p>Adds a simulated force and acceleration sensor for trying the app without hardware. Its data is labeled as simulated.</p><button id="demo" class="text-button">Add demo device <span aria-hidden="true">→</span></button></div><p class="privacy-note"><span aria-hidden="true">▣</span> Your measurements stay on this computer.</p></div>
     </aside>
     <main>
+      <button id="show-devices" class="button" type="button" aria-controls="device-sidebar" aria-expanded="false" hidden><span aria-hidden="true">›</span> Show devices</button>
       <div class="page-heading"><div><label class="eyebrow experiment-name-label" for="experiment-title">EXPERIMENT NAME <span>· click to edit</span></label><h1><input id="experiment-title" aria-label="Experiment name" value="Untitled experiment" maxlength="80" placeholder="Name your experiment"></h1></div><div class="file-actions"><button id="open-experiment" class="button" title="Open a saved experiment file and continue it">Open experiment</button><button id="save-experiment" class="button" title="Save devices, channels, intervals, graphs and all recorded data to a file">Save experiment</button><button id="export" class="button" title="Export every recorded channel from all runs" disabled><span aria-hidden="true">↓</span> Export CSV</button><input id="experiment-file" type="file" accept=".physllama,.json,application/json" hidden></div></div>
       <div id="connection-progress" class="connection-progress" role="status" aria-live="polite" hidden></div>
       <div id="notice" class="notice" role="alert" hidden></div>

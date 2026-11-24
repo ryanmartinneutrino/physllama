@@ -12,7 +12,7 @@ let state = {devices: [], series: [], recording: false, total_points: 0};
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
 let graphs = [];
-let multiMode = false, layoutKey = 'physllama-layout';
+let multiMode = false, layoutKey = 'physllama-layout', sidebarCollapsed = false;
 let connection = {status: 'idle'};
 let lastConnectionError = '';
 const connecting = () => ['connecting', 'retrying'].includes(connection.status);
@@ -23,9 +23,22 @@ function renderConnection() {
 }
 
 function saveLayout() {
-  try { localStorage.setItem(layoutKey, JSON.stringify({title: $('#experiment-title').value,
+  try { localStorage.setItem(layoutKey, JSON.stringify({title: $('#experiment-title').value, sidebarCollapsed,
     graphs: graphs.map(({title, customTitle, selected, follow, scope}) => ({title, customTitle, selected, follow, scope}))})); } catch { /* Storage can be disabled. */ }
 }
+function setSidebarCollapsed(collapsed) {
+  sidebarCollapsed = collapsed;
+  $('#workspace').classList.toggle('sidebar-collapsed', collapsed);
+  $('#device-sidebar').hidden = collapsed;
+  $('#show-devices').hidden = !collapsed;
+  for (const id of ['hide-devices', 'show-devices']) $(`#${id}`).setAttribute('aria-expanded', String(!collapsed));
+}
+$('#hide-devices').addEventListener('click', () => {
+  setSidebarCollapsed(true); $('#show-devices').focus(); saveLayout();
+});
+$('#show-devices').addEventListener('click', () => {
+  setSidebarCollapsed(false); $('#hide-devices').focus(); saveLayout();
+});
 function showNotice(message = '') { $('#notice').textContent = message; $('#notice').hidden = !message; }
 async function request(path, body) {
   const response = await fetch(`/api/${path}`, body === undefined ? {} : {
@@ -368,8 +381,9 @@ function addGraph(saved = {}) {
   });
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
-    const plot = $('.plot', node);
-    if (plot._fullLayout) Plotly.Plots.resize(plot).catch(() => {});
+    for (const plot of node.querySelectorAll('.plot, .fit-preview')) {
+      if (plot._fullLayout && plot.getClientRects().length) Plotly.Plots.resize(plot).catch(() => {});
+    }
   });
   graph.resizeObserver.observe(node);
   $('input[aria-label="Graph title"]', node).addEventListener('change', e => {
@@ -718,6 +732,7 @@ async function openWorkspace() {
     $('#workspace').hidden = false;
     try {
       const saved = JSON.parse(localStorage.getItem(layoutKey) || (!multiMode && localStorage.getItem('vernier-layout')) || 'null');
+      setSidebarCollapsed(saved?.sidebarCollapsed === true);
       if (saved?.title) $('#experiment-title').value = saved.title;
       if (saved?.graphs?.length) saved.graphs.slice(0, 12).forEach(addGraph);
     } catch { /* Start a clean layout if local preferences are unavailable. */ }

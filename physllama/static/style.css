@@ -168,3 +168,10 @@
   .fit-controls label { flex-basis: 100%; }
   .histogram-dialog { padding: 14px; }
 }
+
+/* Keep device controls available while giving graphs the full workspace width. */
+.workspace.sidebar-collapsed { grid-template-columns: minmax(0, 1fr); }
+.sidebar-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#hide-devices { padding: 7px 9px; }
+#hide-devices span { font-size: 18px; line-height: 1; }
+#show-devices { margin-bottom: 16px; }
