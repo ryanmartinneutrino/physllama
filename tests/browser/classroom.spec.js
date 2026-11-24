@@ -29,13 +29,14 @@ test('two groups record independently and a teammate rejoins the same experiment
     await a.getByRole('textbox', {name: 'Experiment name', exact: true}).press('Tab');
     await b.getByRole('textbox', {name: 'Experiment name', exact: true}).fill('Acceleration experiment');
     await b.getByRole('textbox', {name: 'Experiment name', exact: true}).press('Tab');
-    await a.locator('#period').fill('20');
-    await a.locator('#period').press('Tab');
+    await a.locator('[data-period-device="demo-1"]').fill('20');
+    await a.locator('[data-period-device="demo-1"]').press('Tab');
+    await expect(a.locator('[data-device="demo-1"] .period-rate')).toHaveText('= 50 Hz');
     await a.getByRole('button', {name: 'Start collection', exact: true}).click();
     await b.getByRole('button', {name: 'Start collection', exact: true}).click();
     await expect(a.locator('#status')).toHaveText('Recording');
     await expect(b.locator('#status')).toHaveText('Recording');
-    await expect(b.locator('#period')).toHaveValue('50');
+    await expect(b.locator('[data-period-device="demo-1"]')).toHaveValue('50');
     await teammate.goto('/');
     await teammate.getByLabel('Group code', {exact: true}).fill(code);
     await teammate.getByRole('button', {name: 'Join group', exact: true}).click();

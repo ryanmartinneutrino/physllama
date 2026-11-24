@@ -101,7 +101,7 @@ def test_groups_have_independent_runs_settings_data_and_exports(classroom):
     assert state_a['generation'] != state_b['generation']
     assert state_a['workspace'] == group_a
     assert state_b['workspace'] == group_b
-    assert state_a['period_ms'] == 10 and state_b['period_ms'] == 50
+    assert next(d['period_ms'] for d in state_a['devices'] if d['id'] == 'demo-1') == 10 and next(d['period_ms'] for d in state_b['devices'] if d['id'] == 'demo-1') == 50
     assert {s['id'] for s in state_a['series']} == {'demo-1/1'}
     assert {s['id'] for s in state_b['series']} == {'demo-1/2'}
     assert group_b['join_code'] not in str(state_a)

@@ -4,7 +4,7 @@ const colors = ['#1e5480', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6596bf'
 const points = new Map();
 // Latest-run timing per series: {run, first, last, n}. Used to report achieved rates.
 const runStats = new Map();
-let state = {devices: [], series: [], recording: false, total_points: 0, period_ms: 50};
+let state = {devices: [], series: [], recording: false, total_points: 0};
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
 let graphs = [];
@@ -53,7 +53,6 @@ async function action(path, body = {}) {
     showNotice(error.message);
     deviceSignature = '';
     renderDevices();
-    $('#period').value = state.period_ms;
     return false;
   } finally {
     busy = false;
@@ -151,11 +150,14 @@ function renderControls() {
     ? `Recording all compatible channels. Alternative channels not recorded: ${omitted.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`
     : 'All supported channels on connected devices are recorded. Graph selections only control what you plot and export from that graph.';
   $('#device-count').textContent = connected.length;
-  $('#sampling-note').textContent = samplingNote(connected, configuration);
+  $('#sampling-note').textContent = connected.length > 1
+    ? 'Each device samples at its own interval, set on its card. Devices are not synchronized, so their sample times differ.'
+    : connected.length ? 'Set the sampling interval on the device card.' : '';
+  $('#sampling-note').hidden = !connected.length;
   $('#start').disabled = busy || connecting() || offline || state.recording || !channels;
   $('#stop').disabled = busy || connecting() || offline || !state.recording;
   $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
-  for (const id of ['scan', 'demo', 'period']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
+  for (const id of ['scan', 'demo']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
   $('#save-device-name').disabled = busy || connecting() || offline || state.recording;
   $('#export').disabled = busy || connecting() || offline || !state.series.length;
   $('#end-group-button').disabled = busy || connecting() || offline;
@@ -169,8 +171,6 @@ function renderControls() {
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
   $('#samples').textContent = (state.total_points || 0).toLocaleString();
   $('#channels').textContent = channels;
-  $('#sample-rate').textContent = `${(1000 / state.period_ms).toLocaleString(undefined, {maximumFractionDigits: 2})} Hz`;
-  if (document.activeElement !== $('#period')) $('#period').value = state.period_ms;
   $('#status').textContent = offline ? 'Server unavailable' : connecting() ? 'Connecting…' : busy ? 'Working…' : state.recording ? 'Recording' : state.total_points ? 'Collection stopped' : channels ? 'Ready to collect' : connected.length ? 'Choose sensors in a graph' : 'Ready to connect';
   $('#status-dot').classList.toggle('recording', state.recording && !offline);
   $('#acquisition-llama').classList.toggle('running', state.recording && !offline);
@@ -195,35 +195,33 @@ function achievedRate(deviceId) {
   }
   return best && {run: best.run, hz: (best.n - 1) / (best.last - best.first), n: best.n};
 }
-function samplingDetails(device) {
+function samplingDetails(device, disabled) {
   const numbers = state.recording ? device.selected : recordingConfiguration()[device.id];
   const limits = intervalLimits(device, numbers);
-  const range = limits ? ` Accepts ${formatMs(limits.min)}–${formatMs(limits.max)}${limits.steps.length ? ` in multiples of ${limits.steps.map(formatMs).join(', ')}` : ''}.` : '';
-  let how;
+  const period = device.period_ms;
+  const step = limits?.steps.length ? Math.max(...limits.steps) : null;
+  const control = `<div class="device-sampling-control">
+      <label for="period-${esc(device.id)}">Interval</label>
+      <div class="input-unit"><input id="period-${esc(device.id)}" class="period-input" type="number" data-period-device="${esc(device.id)}"
+        value="${period ?? ''}" min="${limits ? limits.min : 10}" max="${limits ? limits.max : 10000}" step="${step || 'any'}" ${disabled}><span>ms</span></div>
+      <span class="period-rate">${period ? `= ${formatHz(1000 / period)}` : ''}</span></div>`;
+  const maximum = limits ? `<p class="sampling-max"><strong>Max ${formatHz(1000 / limits.min)}</strong> (${formatMs(limits.min)})`
+    + ` · min ${formatHz(1000 / limits.max)} (${formatMs(limits.max)})${step ? ` · multiples of ${formatMs(step)}` : ''}</p>` : '';
+  let how = '';
   if (device.timing === 'polled') {
     const rate = achievedRate(device.id);
-    how = `Polled: this computer requests each reading, so the achieved rate can be lower than requested.${range}`
-      + (rate ? ` <strong>Run ${rate.run}: ${formatHz(rate.hz)} achieved</strong> (${formatHz(1000 / state.period_ms)} requested).` : '');
+    how = 'Polled: this computer requests each reading, so the achieved rate is often below the maximum and slightly irregular.'
+      + (rate ? ` <strong>Run ${rate.run}: ${formatHz(rate.hz)} achieved.</strong>` : '');
   } else if (device.timing === 'device') {
-    how = `Device-clocked: the sensor samples at the requested interval on its own clock and streams the data.${range}`;
+    how = 'Device-clocked: the sensor samples at exactly this interval on its own clock and streams the data.';
   } else if (device.timing === 'simulated') {
-    how = `Simulated at exactly the requested interval.${range}`;
-  } else {
-    how = range.trim();
+    how = 'Simulated at exactly this interval.';
   }
-  return how ? `<p class="sampling-detail"><span>Sampling</span> ${how}</p>` : '';
-}
-function samplingNote(connected, configuration) {
-  if (!connected.length) return 'The sampling interval is the time between samples; it applies to every connected device.';
-  const limits = connected.map(d => intervalLimits(d, configuration[d.id])).filter(Boolean);
-  const range = limits.length ? ` With the channels being recorded, choose ${formatMs(Math.max(...limits.map(l => l.min)))}–${formatMs(Math.min(...limits.map(l => l.max)))}.` : '';
-  const families = timing => [...new Set(connected.filter(d => d.timing === timing).map(d => d.family))].join(', ');
-  const parts = [];
-  if (families('device')) parts.push(`${families('device')}: the sensor samples on its own clock at exactly this interval and streams the data`);
-  if (families('polled')) parts.push(`${families('polled')}: this computer polls the sensor, so the achieved rate may be lower and slightly irregular (shown on the device card)`);
-  return `This interval (${formatHz(1000 / state.period_ms)}) applies to every connected device.${range}${parts.length ? ` ${parts.join('; ')}.` : ''} Devices are not synchronized with each other.`;
+  return `<div class="sampling-detail"><span class="sampling-heading">Sampling</span>${control}${maximum}${how ? `<p>${how}</p>` : ''}</div>`;
 }
 function renderDevices() {
+  // Don't replace a period input while someone is typing in it.
+  if (document.activeElement?.matches?.('#devices .period-input')) return;
   const rates = state.devices.filter(d => d.timing === 'polled').map(d => achievedRate(d.id)?.hz.toFixed(1));
   const signature = JSON.stringify([state.devices, state.recording, busy, offline, connection, rates]);
   if (signature === deviceSignature) return;
@@ -247,7 +245,7 @@ function renderDevices() {
       <button class="text-button rename-device" data-device-action="rename" ${disabled || (d.owned === false ? 'disabled' : '')}>Rename device</button>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
       ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · recorded even when not plotted.</p>` : ''}
-      ${d.connected ? samplingDetails(d) : ''}
+      ${d.connected ? samplingDetails(d, disabled) : ''}
       ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
     </article>`;
   }).join('');
@@ -431,9 +429,22 @@ $('#scan').addEventListener('click', async () => {
   $('#scan-note').textContent = success ? (state.devices.some(d => !d.demo) ? 'Search complete. Choose a device below.' : 'No supported devices found. Wake your device and try again.') : `Search unavailable. Check Bluetooth on ${multiMode ? 'the instructor’s' : 'this'} computer.`;
 });
 $('#demo').addEventListener('click', () => action('demo'));
-$('#start').addEventListener('click', () => action('start', {selections: recordingConfiguration(), period_ms: state.period_ms}));
+$('#start').addEventListener('click', () => action('start', {selections: recordingConfiguration()}));
 $('#stop').addEventListener('click', () => action('stop'));
-$('#period').addEventListener('change', () => action('configure', {selections: recordingConfiguration(), period_ms: Number($('#period').value)}));
+$('#devices').addEventListener('change', async event => {
+  const input = event.target.closest('[data-period-device]');
+  if (!input) return;
+  const value = Number(input.value);
+  input.blur();
+  if (!input.value || !(value >= Number(input.min) && value <= Number(input.max))) {
+    const device = state.devices.find(d => d.id === input.dataset.periodDevice);
+    showNotice(`${device?.name || 'This device'}: choose an interval from ${input.min} to ${input.max} ms (${formatHz(1000 / Number(input.min))} down to ${formatHz(1000 / Number(input.max))}).`);
+    deviceSignature = ''; renderDevices();
+    return;
+  }
+  await action('configure', {selections: recordingConfiguration(), periods: {[input.dataset.periodDevice]: value}});
+  deviceSignature = ''; renderDevices();
+});
 $('#reset').addEventListener('click', () => $('#reset-dialog').showModal());
 $('#confirm-reset').addEventListener('click', async () => { $('#reset-dialog').close(); await action('reset'); });
 $('#help-button').addEventListener('click', () => $('#help-dialog').showModal());

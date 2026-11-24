@@ -19,6 +19,22 @@ from .names import validate_name
 from .csv_export import wide_csv
 
 MAX_POINTS = 250_000
+DEFAULT_PERIOD_MS = 50
+
+
+def default_period(device):
+    """50 ms, moved into the range and granularity every supported channel accepts."""
+    sensors = [s for s in device.sensors if s['supported']]
+    if not sensors:
+        return DEFAULT_PERIOD_MS
+    low = max(10, *(s['minimum_ms'] for s in sensors))
+    high = min(10000, *(s['maximum_ms'] for s in sensors))
+    period = min(max(DEFAULT_PERIOD_MS, low), max(low, high))
+    steps = [s['step_ms'] for s in sensors if s['step_ms'] > 0]
+    if steps:
+        step = max(steps)
+        period = math.ceil(period / step - 1e-9) * step
+    return period
 
 
 class Lab:
@@ -32,7 +48,7 @@ class Lab:
         self.series = {}
         self.points = []
         self.recording = False
-        self.period_ms = 50
+        self.periods = {}  # Sampling interval in ms for each device.
         self.run = 0
         self.generation = uuid.uuid4().hex
         self.error = None
@@ -139,6 +155,8 @@ class Lab:
                 raise
         if device_id not in self.selected:
             self.selected[device_id] = [s['number'] for s in device.sensors if s['supported']][:1]
+        if device_id not in self.periods:
+            self.periods[device_id] = default_period(device)
         return self.snapshot()
 
     def disconnect(self, device_id):
@@ -159,6 +177,7 @@ class Lab:
         self.disconnect(device_id)
         del self.devices[device_id]
         self.selected.pop(device_id, None)
+        self.periods.pop(device_id, None)
         return self.snapshot()
 
     def expire(self):
@@ -191,14 +210,27 @@ class Lab:
                 series['device'] = self.display_name(self.devices[device_id])
         return self.snapshot()
 
-    def configure(self, selections, period_ms):
+    def configure(self, selections, period_ms=None, periods=None):
+        """Set recorded channels and each device's sampling interval.
+
+        `periods` maps device IDs to intervals; `period_ms`, when given,
+        applies to selected devices without their own entry. Other devices
+        keep their current interval.
+        """
         self.require_idle()
-        if not math.isfinite(period_ms) or not 10 <= period_ms <= 10000:
-            raise ValueError('Choose a sampling interval from 10 to 10,000 ms.')
-        for device_id, numbers in selections.items():
+        periods = periods or {}
+        updated = self.periods.copy()
+        for device_id in {*selections, *periods}:
             device = self.devices.get(device_id)
             if device is None or not device.connected:
                 raise ValueError('Connect the selected device first.')
+            period = periods.get(device_id, period_ms if device_id in selections and period_ms is not None
+                                 else updated.get(device_id, default_period(device)))
+            if not math.isfinite(period) or not 10 <= period <= 10000:
+                raise ValueError('Choose a sampling interval from 10 to 10,000 ms.')
+            updated[device_id] = period
+        for device_id, numbers in selections.items():
+            device, period = self.devices[device_id], updated[device_id]
             sensors = {s['number']: s for s in device.sensors}
             if len(set(numbers)) != len(numbers) or any(n not in sensors for n in numbers):
                 raise ValueError('Invalid sensor selection.')
@@ -208,25 +240,25 @@ class Lab:
                     raise ValueError(f"{sensor['name']} uses event-based sampling, which is not supported yet.")
                 if any(other in sensor['excluded_channels'] for other in numbers if other != n):
                     raise ValueError(f"{sensor['name']} conflicts with another selected channel.")
-                if not sensor['minimum_ms'] <= period_ms <= sensor['maximum_ms']:
-                    raise ValueError(f"{sensor['name']} requires {sensor['minimum_ms']:g}–{sensor['maximum_ms']:g} ms.")
+                if not sensor['minimum_ms'] <= period <= sensor['maximum_ms']:
+                    raise ValueError(f"{self.display_name(device)}: {sensor['name']} requires {sensor['minimum_ms']:g}–{sensor['maximum_ms']:g} ms.")
                 step = sensor['step_ms']
-                if step > 0 and not math.isclose(period_ms / step, round(period_ms / step), abs_tol=1e-5):
-                    raise ValueError(f"{sensor['name']} requires an interval in multiples of {step:g} ms.")
-        self.selected, self.period_ms = copy.deepcopy(selections), period_ms
+                if step > 0 and not math.isclose(period / step, round(period / step), abs_tol=1e-5):
+                    raise ValueError(f"{self.display_name(device)}: {sensor['name']} requires an interval in multiples of {step:g} ms.")
+        self.selected, self.periods = copy.deepcopy(selections), updated
         return self.snapshot()
 
-    def start(self, selections=None, period_ms=None):
+    def start(self, selections=None, period_ms=None, periods=None):
         self.require_idle()
         if selections is not None:
-            self.configure(selections, self.period_ms if period_ms is None else period_ms)
+            self.configure(selections, period_ms, periods)
         active = {key: numbers for key, numbers in self.selected.items()
                   if numbers and key in self.devices and self.devices[key].connected}
         if not active:
             raise ValueError('Connect a device and select at least one sensor to record.')
         if len(self.points) >= MAX_POINTS:
             raise ValueError('The session is full. Export your data and reset to continue.')
-        self.configure(active, self.period_ms)
+        self.configure(active)
         # No mixed synthetic/real experiments, including data from earlier runs.
         kinds = {self.devices[key].demo for key in active}
         kinds.update(s['demo'] for s in self.series.values())
@@ -239,7 +271,7 @@ class Lab:
             for key, numbers in active.items():
                 started.append(key)
                 offsets[key] = time.monotonic() - epoch
-                self.devices[key].start(numbers, self.period_ms)
+                self.devices[key].start(numbers, self.periods[key])
         except Exception:
             for key in started:
                 try:
@@ -282,7 +314,7 @@ class Lab:
                         value, t = reading.value, reading.timestamp - self.epoch
                     else:
                         value = reading
-                        t = self.offsets[key] + self.counts[series_id] * self.period_ms / 1000
+                        t = self.offsets[key] + self.counts[series_id] * self.periods[key] / 1000
                     if not math.isfinite(t) or t < self.offsets[key] or t < self.last_times.get(series_id, t):
                         raise RuntimeError(f'{device.name} reported invalid sample timing. Collection stopped.')
                     self.last_times[series_id] = t
@@ -291,7 +323,7 @@ class Lab:
                         t=round(t, 6), value=value if math.isfinite(value) else None, run=self.run))
                 if values:
                     self.last_seen[key] = time.monotonic()
-            if time.monotonic() - self.last_seen[key] > max(5, self.period_ms / 1000 * 3):
+            if time.monotonic() - self.last_seen[key] > max(5, self.periods[key] / 1000 * 3):
                 raise RuntimeError(f'No data from {device.name}. Check its power and Bluetooth connection.')
 
     def stop(self):
@@ -326,7 +358,7 @@ class Lab:
         after = min(max(after, 0), len(self.points))
         # Bounded deltas; a reloaded browser catches up over several polls.
         points = self.points[after:after + 10000] if generation is not None else []
-        return dict(recording=self.recording, period_ms=self.period_ms,
+        return dict(recording=self.recording,
             experiment_name=self.experiment_name,
             supported_devices=self.registry.families(),
             run=self.run, generation=self.generation, error=self.error,
@@ -338,7 +370,7 @@ class Lab:
                 rssi=d.rssi, demo=d.demo, connected=d.connected,
                 driver=d.driver, family=d.family, timing=getattr(d, 'timing', None),
                 battery=d.battery, charging=d.charging, sensors=copy.deepcopy(d.sensors),
-                selected=self.selected.get(d.id, [])) for d in self.devices.values()])
+                selected=self.selected.get(d.id, []), period_ms=self.periods.get(d.id)) for d in self.devices.values()])
 
     def export_csv(self, series_ids=None):
         ids = set(series_ids) if series_ids is not None else set(self.series)

@@ -208,7 +208,7 @@ def test_start_accepts_the_exact_graph_selection_and_rejects_empty_selection(cli
     started = client.post('/api/start', json=chosen)
     assert started.status_code == 200
     assert {s['id'] for s in started.json()['series']} == {'demo-1/2', 'demo-2/1', 'demo-2/4'}
-    assert started.json()['period_ms'] == 20
+    assert {d['id']: d['period_ms'] for d in started.json()['devices']} == {'demo-1': 20, 'demo-2': 20}
     assert client.post('/api/start', json=chosen).status_code == 400
     client.post('/api/stop')
     assert client.post('/api/start', json={'selections': {}, 'period_ms': 20}).status_code == 400
@@ -217,6 +217,47 @@ def test_start_accepts_the_exact_graph_selection_and_rejects_empty_selection(cli
     selected = {d['id']: d['selected'] for d in changed.json()['devices']}
     assert selected == {'demo-1': [3], 'demo-2': []}
     assert changed.json()['run'] == 2
+
+
+def test_each_device_samples_at_its_own_interval(client):
+    for _ in range(2):
+        client.post('/api/demo')
+    devices = {d['id']: d['period_ms'] for d in client.get('/api/state').json()['devices']}
+    assert devices == {'demo-1': 50, 'demo-2': 50}
+    started = client.post('/api/start', json={'selections': {'demo-1': [1], 'demo-2': [1]},
+                                               'periods': {'demo-1': 10, 'demo-2': 40}})
+    assert started.status_code == 200
+    assert {d['id']: d['period_ms'] for d in started.json()['devices']} == {'demo-1': 10, 'demo-2': 40}
+    time.sleep(.2)
+    client.post('/api/stop')
+    points = client.get('/api/state').json()['points']
+    for series, spacing in (('demo-1/1', .01), ('demo-2/1', .04)):
+        times = [p['t'] for p in points if p['series'] == series]
+        assert len(times) > 2
+        assert all(b - a == pytest.approx(spacing, abs=1e-6) for a, b in zip(times, times[1:]))
+    # Changing one device's interval leaves the other's unchanged.
+    changed = client.post('/api/configure', json={'selections': {'demo-1': [1], 'demo-2': [1]}, 'periods': {'demo-2': 100}})
+    assert {d['id']: d['period_ms'] for d in changed.json()['devices']} == {'demo-1': 10, 'demo-2': 100}
+
+
+def test_interval_limits_are_checked_per_device(client):
+    client.post('/api/demo')
+    client.post('/api/demo')
+    response = client.post('/api/configure', json={'selections': {'demo-1': [1]}, 'periods': {'demo-1': 10001}})
+    assert response.status_code == 422
+    response = client.post('/api/configure', json={'selections': {'demo-1': [1]}, 'periods': {'missing': 50}})
+    assert response.status_code == 400
+
+
+def test_default_interval_fits_the_device_limits():
+    from physllama.acquisition import default_period
+
+    class Fake:
+        sensors = [dict(supported=True, minimum_ms=100, maximum_ms=1000, step_ms=0),
+                   dict(supported=True, minimum_ms=10, maximum_ms=500, step_ms=30)]
+    assert default_period(Fake) == 120
+    Fake.sensors = [dict(supported=True, minimum_ms=20, maximum_ms=10000, step_ms=0)]
+    assert default_period(Fake) == 50
 
 
 def test_graph_selection_validation_happens_before_any_device_starts(client):

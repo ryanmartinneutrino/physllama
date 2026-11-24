@@ -184,7 +184,7 @@ class Classroom:
                 await group.lab.call(action, **kwargs)
             elif action in ('start', 'configure'):
                 selections = kwargs.get('selections', group.lab.selected)
-                for device_id in selections:
+                for device_id in {*selections, *(kwargs.get('periods') or {})}:
                     self.require_owner(group, device_id)
                 await group.lab.call(action, **kwargs)
             elif action == 'export_csv':

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response as HTTPResponse
@@ -23,9 +24,14 @@ class RenameRequest(DeviceRequest):
     name: str = Field(max_length=60)
 
 
+Interval = Annotated[float, Field(ge=10, le=10000, allow_inf_nan=False)]
+
+
 class Configuration(BaseModel):
     selections: dict[str, list[int]]
-    period_ms: float = Field(ge=10, le=10000, allow_inf_nan=False)
+    # Sampling interval per device ID. period_ms applies to selected devices without an entry.
+    periods: dict[str, Interval] = {}
+    period_ms: Interval | None = None
 
 
 class GroupRequest(BaseModel):
