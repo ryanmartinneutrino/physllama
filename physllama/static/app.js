@@ -173,11 +173,11 @@ function renderControls() {
   }
   const notes = [];
   if (blocked.length) notes.push(`Can’t start: ${blocked.join(', ')} ${blocked.length > 1 ? 'are' : 'is'} plotted but can’t be sampled at ${blocked.length > 1 ? 'their device’s' : 'its device’s'} interval. All channels on one device share its interval, so choose a longer interval or uncheck the channel.`);
-  if (tooSlow.length) notes.push(`Not recorded at the current interval: ${tooSlow.join(', ')}. Choose a longer interval on the device card to record ${tooSlow.length > 1 ? 'them' : 'it'}.`);
+  if (tooSlow.length) notes.push(`⚠ ${state.recording ? 'Not being recorded in this run' : 'Will not be recorded'}: ${tooSlow.join(', ')}. ${tooSlow.length > 1 ? 'These channels are' : 'This channel is'} too slow for ${tooSlow.length > 1 ? 'their device’s' : 'its device’s'} interval, so ${state.recording ? 'this run has' : 'the next run will have'} no data for ${tooSlow.length > 1 ? 'them' : 'it'}, in the graphs or in either CSV. ${state.recording ? 'Stop and choose' : 'Choose'} a longer interval on the device card to record ${tooSlow.length > 1 ? 'them' : 'it'}.`);
   if (alternatives.length) notes.push(`Alternative channels not recorded: ${alternatives.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`);
   $('#recording-note').textContent = notes.length ? notes.join(' ')
     : 'All supported channels on connected devices are recorded. Graph selections only control what you plot and export from that graph.';
-  $('#recording-note').classList.toggle('warning', blocked.length > 0);
+  $('#recording-note').classList.toggle('warning', blocked.length > 0 || tooSlow.length > 0);
   $('#device-count').textContent = connected.length;
   $('#sampling-note').textContent = connected.length > 1
     ? 'Each device samples at its own interval, set on its card. Devices are not synchronized, so their sample times differ.'
@@ -538,7 +538,17 @@ $('#devices').addEventListener('change', async event => {
     deviceSignature = ''; renderDevices();
     return;
   }
-  await action('configure', {selections: recordingConfiguration({[id]: value}), periods: {[id]: value}});
+  // Warn when the new interval drops channels that were going to be recorded.
+  const device = state.devices.find(d => d.id === id);
+  const before = new Set(recordingConfiguration()[id] || []);
+  const after = new Set(recordingConfiguration({[id]: value})[id] || []);
+  const dropped = (device?.sensors || []).filter(s => before.has(s.number) && !after.has(s.number) && !acceptsInterval(s, value));
+  if (await action('configure', {selections: recordingConfiguration({[id]: value}), periods: {[id]: value}}) && dropped.length) {
+    const slowest = Math.max(...dropped.map(s => s.minimum_ms));
+    showNotice(`${device.name}: at ${formatMs(value)} (${formatHz(1000 / value)}), ${dropped.map(s => `${s.name} (max ${formatHz(1000 / s.minimum_ms)})`).join(', ')} `
+      + `will not be recorded and won’t appear in either CSV. All channels on a device share one interval. `
+      + `Choose ${formatMs(slowest)} or longer to record ${dropped.length > 1 ? 'them' : 'it'}.`);
+  }
   deviceSignature = ''; renderDevices();
 });
 $('#reset').addEventListener('click', () => $('#reset-dialog').showModal());

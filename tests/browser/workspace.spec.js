@@ -492,15 +492,28 @@ test('a slow unplotted channel does not limit a fast device; plotted channels do
   state.devices = [state.devices.find(d => d.connected)];
   const device = state.devices[0];
   device.sensors[0].minimum_ms = 50;  // Force: max 20 Hz; accelerations: max 100 Hz
-  device.period_ms = 10;
+  device.period_ms = 50;
   await page.route('**/api/state?*', route => route.fulfill({json: state}));
+  await page.route('**/api/configure', route => {
+    Object.assign(device, {period_ms: route.request().postDataJSON().periods[device.id]});
+    return route.fulfill({json: state});
+  });
   let selections;
   await page.route('**/api/start', route => { selections = route.request().postDataJSON().selections; return route.fulfill({json: state}); });
   await page.goto('/');
   const card = page.locator(`[data-device="${device.id}"]`);
+  // At 50 ms every channel is recorded; going faster warns that Force is lost.
+  await expect(page.locator('#channels')).toHaveText('4');
+  await expect(page.locator('#recording-note')).not.toHaveClass(/warning/);
+  await card.locator('.period-input').fill('10');
+  await card.locator('.period-input').press('Enter');
+  await expect(page.locator('#notice')).toContainText('Force (max 20 Hz) will not be recorded and won’t appear in either CSV');
+  await expect(page.locator('#notice')).toContainText('Choose 50 ms or longer');
+  await expect(page.locator('#recording-note')).toContainText('no data for it, in the graphs or in either CSV');
+  await expect(page.locator('#recording-note')).toHaveClass(/warning/);
   await expect(card.locator('.sampling-max')).toContainText('Max 100 Hz');
   await expect(card.locator('.sampling-channels').first()).toContainText('Force up to 20 Hz');
-  await expect(page.locator('#recording-note')).toContainText('Not recorded at the current interval');
+  await expect(page.locator('#recording-note')).toContainText('Will not be recorded: ');
   await expect(page.locator('#channels')).toHaveText('3');
   const graph = page.locator('.graph').first();
   await graph.locator('summary').click();
