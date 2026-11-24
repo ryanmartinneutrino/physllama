@@ -132,7 +132,7 @@
 .analysis-toolbar, .analysis-tabs, .table-controls, .table-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .analysis-toolbar { justify-content: space-between; margin-bottom: 12px; }
 .analysis-toolbar label, .table-controls label { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.graph-analysis select, .graph-analysis .fit-sigma { max-width: 100%; min-width: 0; border: 1px solid #cbd8e2; background: white; border-radius: 6px; padding: 8px 10px; color: #314c61; font: inherit; }
+.graph-analysis select, .graph-analysis .fit-sigma, .histogram-controls input { max-width: 100%; min-width: 0; border: 1px solid #cbd8e2; background: white; border-radius: 6px; padding: 8px 10px; color: #314c61; font: inherit; }
 .analysis-tabs { gap: 8px; }
 .analysis-toggle { display: flex; gap: 16px; justify-content: space-between; border: 1px solid #cfdfed; border-radius: 6px; color: #326b9c; padding: 8px 12px; background: #f0f7fd; font: inherit; font-size: 12px; cursor: pointer; }
 .analysis-toggle[aria-expanded="true"] { background: #dfeef9; border-color: #89afcd; }
@@ -157,6 +157,10 @@
 .histogram-dialog { width: min(720px, calc(100vw - 32px)); max-width: calc(100vw - 32px); padding: 24px; }
 .histogram-plot { height: 350px; min-width: 0; }
 .histogram-note { overflow-wrap: anywhere; }
+.histogram-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 16px 0 10px; }
+.histogram-controls label { display: flex; flex: 1 1 130px; min-width: 0; flex-direction: column; gap: 6px; font-size: 12px; }
+.histogram-error { color: #a33d34; }
+.histogram-error:empty { display: none; }
 @media (max-width: 800px) {
   .graph-analysis { padding: 12px 13px; }
   .analysis-toolbar { align-items: flex-start; flex-direction: column; }

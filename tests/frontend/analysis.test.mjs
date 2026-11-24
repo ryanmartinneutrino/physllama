@@ -64,3 +64,22 @@ test('invalid uncertainties and underdetermined fits fail clearly', () => {
   assert.throws(() => polynomialFit([{t: 0, value: 1}, {t: 1, value: 2}, {t: 1, value: 3}], 2, 1), /reliably/);
   assert.equal(polynomialFit(samples([1, 2]), 1, 1).reducedChiSquared, null);
 });
+
+test('custom histograms exclude out-of-range values and include both endpoints', () => {
+  const result = histogram(samples([-1, 0, .5, 1, 1.5, 2, 3]), {min: 0, max: 2, bins: 2});
+  assert.deepEqual(result.counts, [2, 3]);
+  assert.deepEqual(result.centers, [.5, 1.5]);
+  assert.equal(result.width, 1);
+  assert.deepEqual(histogram(samples([1, 2]), {min: 10, max: 20, bins: 4}).counts, [0, 0, 0, 0]);
+  assert.deepEqual(histogram(samples([1, 1, 1]), {min: 0, max: 2, bins: 2}).counts, [0, 3]);
+});
+
+test('custom histograms reject invalid ranges and bin counts', () => {
+  for (const [min, max] of [[1, 1], [2, 1], [NaN, 1], [0, Infinity]]) {
+    assert.throws(() => histogram(samples([1]), {min, max, bins: 2}), /range limits/);
+  }
+  for (const bins of [0, -1, 1.5, NaN, Infinity, 1001]) {
+    assert.throws(() => histogram(samples([1]), {min: 0, max: 2, bins}), /whole number/);
+  }
+  assert.throws(() => histogram(samples([1]), {min: -1e308, max: 1e308, bins: 1}), /Widen the range/);
+});

@@ -156,3 +156,57 @@ test('missing samples, independent graph scopes, new runs and reset stay consist
   await expect(first.locator('.data-table')).toContainText('No samples');
   await expect(second.locator('.stats-table tbody tr td').nth(1)).toHaveText('0');
 });
+
+test('histogram range and bin controls redraw, validate, and preserve graph statistics', async ({page}) => {
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  await fixture(page);
+  await page.getByLabel('Graph data scope').selectOption('current');
+  await page.getByRole('button', {name: 'Statistics', exact: true}).click();
+  const stats = page.locator('.stats-table tbody tr');
+  await stats.first().getByRole('button', {name: /Histogram/}).click();
+  const modal = page.getByRole('dialog');
+  const plot = modal.locator('.histogram-plot');
+  await expect(modal.getByLabel('Minimum value')).toHaveValue('21');
+  await expect(modal.getByLabel('Maximum value')).toHaveValue('29');
+  await expect(modal.getByLabel('Number of bins')).toHaveValue('3');
+  await modal.getByLabel('Minimum value').fill('23');
+  await modal.getByLabel('Maximum value').fill('27');
+  await modal.getByLabel('Number of bins').fill('2');
+  expect(await plot.evaluate(el => el.data[0].y.length)).toBe(3);
+  await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
+  await expect.poll(() => plot.evaluate(el => el.data[0].y)).toEqual([1, 2]);
+  expect(await plot.evaluate(el => el.layout.xaxis.range)).toEqual([23, 27]);
+  await expect(modal.locator('.histogram-note')).toContainText('3 in histogram · 2 outside value range');
+  await modal.getByLabel('Minimum value').fill('30');
+  await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
+  await expect(modal.getByRole('alert')).toContainText('minimum less than maximum');
+  expect(await plot.evaluate(el => el.data[0].y)).toEqual([1, 2]);
+  await modal.getByLabel('Minimum value').fill('');
+  await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
+  await expect(modal.getByRole('alert')).toContainText('finite range limits');
+  await modal.getByLabel('Minimum value').fill('23');
+  for (const count of ['1.5', '1001']) {
+    await modal.getByLabel('Number of bins').fill(count);
+    await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
+    await expect(modal.getByRole('alert')).toContainText('whole number of bins');
+  }
+  await modal.getByLabel('Minimum value').fill('100');
+  await modal.getByLabel('Maximum value').fill('110');
+  await modal.getByLabel('Number of bins').fill('4');
+  await modal.getByLabel('Number of bins').press('Enter');
+  await expect.poll(() => plot.evaluate(el => el.data[0].y)).toEqual([0, 0, 0, 0]);
+  await expect(modal.locator('.histogram-note')).toContainText('0 in histogram · 5 outside value range');
+  await expect(modal.locator('.histogram-error')).toBeEmpty();
+  await page.setViewportSize({width: 390, height: 844});
+  await expect.poll(() => plot.evaluate(el => el._fullLayout.width)).toBeLessThan(390);
+  expect(await modal.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({path: 'test-results/histogram-controls-mobile.png'});
+  await modal.getByRole('button', {name: 'Close histogram'}).click();
+  await expect(stats.first().locator('td').nth(1)).toHaveText('5');
+  await stats.nth(1).getByRole('button', {name: /Histogram/}).click();
+  await expect(modal.getByLabel('Minimum value')).toHaveValue('43');
+  await expect(modal.getByLabel('Maximum value')).toHaveValue('87');
+  await expect(modal.getByLabel('Number of bins')).toHaveValue('3');
+  await expect.poll(() => plot.evaluate(el => el.data[0].y.reduce((a, b) => a + b, 0))).toBe(5);
+  expect(errors).toEqual([]);
+});

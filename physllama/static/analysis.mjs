@@ -15,15 +15,30 @@ export function statistics(samples) {
   const squareMean = scale ? samples.reduce((s, p) => s + (p.value / scale) ** 2 / samples.length, 0) : 0;
   return {n: samples.length, min, max, mean, rms: scale * Math.sqrt(squareMean)};
 }
-export function histogram(samples) {
-  const {n, min, max} = statistics(samples);
-  if (!n) return {centers: [], counts: [], width: 1};
-  const bins = min === max ? 1 : Math.min(50, Math.ceil(Math.sqrt(n)));
-  const width = min === max ? Math.max(Math.abs(min) * .02, 1) : (max - min) / bins;
-  const start = min === max ? min - width / 2 : min;
+export const MAX_HISTOGRAM_BINS = 1000;
+export function histogram(samples, options = {}) {
+  const {n, min: dataMin, max: dataMax} = statistics(samples);
+  const padding = n && dataMin === dataMax ? Math.max(Math.abs(dataMin) * .02, 1) / 2 : 0;
+  const min = options.min ?? (n ? dataMin - padding : 0);
+  const max = options.max ?? (n ? dataMax + padding : 1);
+  const bins = options.bins ?? (dataMin === dataMax || !n ? 1 : Math.min(50, Math.ceil(Math.sqrt(n))));
+  if (!Number.isFinite(min) || !Number.isFinite(max) || !(min < max)) {
+    throw new Error('Enter finite range limits with minimum less than maximum.');
+  }
+  if (!Number.isInteger(bins) || bins < 1 || bins > MAX_HISTOGRAM_BINS) {
+    throw new Error(`Enter a whole number of bins from 1 to ${MAX_HISTOGRAM_BINS}.`);
+  }
+  const width = (max - min) / bins;
+  if (!Number.isFinite(width) || width <= 0 || min + width === min || max - width === max) {
+    throw new Error('This range cannot be divided into that many bins. Widen the range or use fewer bins.');
+  }
   const counts = Array(bins).fill(0);
-  for (const p of samples) counts[Math.min(bins - 1, Math.max(0, Math.floor((p.value - start) / width)))]++;
-  return {centers: counts.map((_, i) => start + (i + .5) * width), counts, width};
+  for (const p of samples) {
+    // Include both range endpoints; internal boundaries belong to the bin on the right.
+    if (!Number.isFinite(p.value) || p.value < min || p.value > max) continue;
+    counts[Math.min(bins - 1, Math.floor((p.value - min) / width))]++;
+  }
+  return {centers: counts.map((_, i) => min + (i + .5) * width), counts, width, min, max};
 }
 
 // A model owns its solver and parameter metadata. Future nonlinear models can
