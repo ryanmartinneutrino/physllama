@@ -124,12 +124,13 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   for await (const chunk of await graphDownload.createReadStream()) graphCSV += chunk;
   const rows = graphCSV.trim().split(/\r?\n/).slice(1).map(row => row.split(','));
   const header = graphCSV.split(/\r?\n/)[0].split(',');
-  expect(header).toHaveLength(4);
+  expect(header).toHaveLength(5);
+  expect(header.slice(0, 3)).toEqual(['run', 'time_s', 'run_time_s']);
   expect(header.some(column => column.includes('Acceleration X [m/s²] (demo-1/2'))).toBe(true);
   expect(header.some(column => column.includes('Force [N] (demo-2/1'))).toBe(true);
   expect(rows.length).toBeGreaterThan(1);
-  expect(rows.every(row => row.length === 4)).toBe(true);
-  expect(rows.map(row => row.slice(0, 2))).toEqual(csv.trim().split(/\r?\n/).slice(1).map(row => row.split(',').slice(0, 2)));
+  expect(rows.every(row => row.length === 5)).toBe(true);
+  expect(rows.map(row => row.slice(0, 3))).toEqual(csv.trim().split(/\r?\n/).slice(1).map(row => row.split(',').slice(0, 3)));
   expect(Math.max(...rows.map(row => Number(row[1])))).toBeGreaterThan(.2);
   const samples = await page.locator('#samples').innerText();
   await page.reload();
@@ -445,16 +446,22 @@ test('collection records unplotted channels and unplotted devices; exports share
   }
   const all = await download(page.locator('#export'));
   const plotted = await download(graph.locator('.graph-export'));
-  expect(all[0]).toHaveLength(10);
+  expect(all[0]).toHaveLength(11);
   for (const device of devices) for (const sensor of device.sensors) {
     expect(all[0].some(column => column.includes(`${device.id}/${sensor.number};`))).toBe(true);
   }
-  expect(plotted[0]).toHaveLength(3);
-  expect(plotted[0][2]).toContain(`${devices[0].id}/1;`);
+  expect(plotted[0]).toHaveLength(4);
+  expect(plotted[0][3]).toContain(`${devices[0].id}/1;`);
   const expectedTimes = [...new Set(state.points.map(p => JSON.stringify([p.run, p.t])))].map(s => JSON.parse(s))
     .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   expect(all.slice(1).map(row => row.slice(0, 2).map(Number))).toEqual(expectedTimes);
-  expect(plotted.slice(1).map(row => row.slice(0, 2))).toEqual(all.slice(1).map(row => row.slice(0, 2)));
+  expect(plotted.slice(1).map(row => row.slice(0, 3))).toEqual(all.slice(1).map(row => row.slice(0, 3)));
+  // run_time_s restarts at 0 for each run.
+  const firsts = {};
+  for (const [run, t, runTime] of all.slice(1).map(row => row.slice(0, 3).map(Number))) {
+    firsts[run] ??= t;
+    expect(runTime).toBeCloseTo(t - firsts[run], 6);
+  }
 });
 
 test('recording includes compatible unplotted channels and explains exclusive alternatives', async ({page}) => {

@@ -162,17 +162,18 @@ Devices are not synchronized with each other, so samples from different devices 
 
 The app records SDK-decoded measurements without extra scaling or calibration. Smart Cart position is zeroed at the first sample of each run, matching the previous cart app; its derived velocity and speed use a rolling least-squares fit to the last three position samples. Derivative history is cleared on every Start, so it never spans a pause. Initial or unavailable derivatives are missing values, not invented zeros. Other measurements have no additional zero offset. An empty unit field is labeled `a.u.` (arbitrary units). Device calibration is handled by the device firmware and its adapter library. Advanced calibration workflows and aperiodic/event channels are not implemented.
 
-CSV is in **wide format**: one row per sample time, one column per recorded sensor channel, plus `run` and `time_s`. For example, with two devices whose samples were taken at different times:
+CSV is in **wide format**: one row per sample time, one column per recorded sensor channel, plus three leading columns: `run` (the run number), `time_s` (seconds since the first Start, including pauses) and `run_time_s` (seconds since the run's first sample on any channel, so each run starts at 0). For example, with two devices whose samples were taken at different times:
 
 ```text
-run,time_s,Bench 1 — Force [N] (cart-a/1001; 123-456; Smart Cart),Bench 2 — Position [m] (cart-b/3001; 654-321; Smart Cart)
-1,0.051,1.25,
-1,0.063,,0.12
-1,0.112,1.30,
-1,0.124,,0.15
+run,time_s,run_time_s,Bench 1 — Force [N] (cart-a/1001; 123-456; Smart Cart),Bench 2 — Position [m] (cart-b/3001; 654-321; Smart Cart)
+1,0.051,0.0,1.25,
+1,0.063,0.012,,0.12
+1,0.112,0.061,1.30,
+1,0.124,0.073,,0.15
+2,7.402,0.0,1.27,
 ```
 
-Headers include the current device nickname, channel name, unit, immutable channel/device ID, original advertised name when different, and printed PASCO serial when available. Demo columns also include `DEMO`. Renaming changes the header without changing raw samples or their identities. `time_s` is relative to the first Start and includes pauses; `run` distinguishes recording runs.
+Headers include the current device nickname, channel name, unit, immutable channel/device ID, original advertised name when different, and printed PASCO serial when available. Demo columns also include `DEMO`. Renaming changes the header without changing raw samples or their identities. `time_s` is relative to the first Start and includes pauses; `run` distinguishes recording runs; `run_time_s` is the same for every export of a run (graph exports included), because it counts from the run's first sample on any recorded channel. To analyse one run, filter on `run` and use `run_time_s`.
 
 Rows are the **union of all actual sample times** in each run. Every cell is a raw measurement taken at exactly that row’s time; **nothing is interpolated or resampled**. A cell is blank when that channel has no sample at that time: another device’s sample time, before or after the channel was recorded, a run where it was not recorded, or a missing measurement (such as the initial cart velocity/speed). Channels from the same device share timestamps, so they fill the same rows; devices with different rates or start times fill interleaved rows. Both the top-level and graph CSV include one row for every distinct `(run, time_s)` in the experiment; graph filtering changes only the columns.
 

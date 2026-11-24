@@ -1,4 +1,7 @@
-"""Wide CSV: one row per recorded (run, time). Raw samples are written unmodified, never interpolated."""
+"""Wide CSV: one row per recorded (run, time). Raw samples are written unmodified, never interpolated.
+
+Columns: run, time_s (since the first Start), run_time_s (since the run's first sample), then one per channel.
+"""
 import csv
 import io
 import math
@@ -22,7 +25,7 @@ def wide_csv(series, points):
     writer = csv.writer(output)
     ids = [s['id'] for s in series]
     selected = set(ids)
-    writer.writerow(['run', 'time_s', *(channel_heading(s) for s in series)])
+    writer.writerow(['run', 'time_s', 'run_time_s', *(channel_heading(s) for s in series)])
     runs = {}
     timelines = {}
     for point in points:
@@ -36,9 +39,12 @@ def wide_csv(series, points):
 
     for run, timeline in sorted(timelines.items()):
         channels = runs.get(run, {})
-        for t in sorted(timeline):
+        times = sorted(timeline)
+        for t in times:
             # Only values measured at exactly this time; no interpolation. A
             # channel without a sample at this time (another device's sample
             # time, outside its run, or a missing measurement) is left blank.
-            writer.writerow([run, t, *(channels.get(key, {}).get(t) for key in ids)])
+            # run_time_s counts from the run's first sample on any channel, so
+            # every run starts at 0 and all exports of a run agree.
+            writer.writerow([run, t, round(t - times[0], 6), *(channels.get(key, {}).get(t) for key in ids)])
     return output.getvalue()

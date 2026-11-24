@@ -53,7 +53,7 @@ def test_rename_updates_graph_metadata_and_csv_but_keeps_series_ids():
         assert after['total_points'] == before['total_points']
         assert all(s['device'] == 'Bench 4' for s in after['series'])
         rows = list(csv.DictReader(io.StringIO(client.get('/api/export').text)))
-        columns = list(rows[0])[2:]
+        columns = list(rows[0])[3:]
         assert columns
         assert all(column.startswith('Bench 4 — ') for column in columns)
         assert all('demo-1/' in column and 'Demo Motion & Force 1' in column for column in columns)

@@ -21,8 +21,15 @@ def experiment(channels):
 
 
 def rows(lab, selected=None):
+    """Parse an export, check run_time_s on every row, and return rows without it."""
     parsed = list(csv.reader(io.StringIO(lab.export_csv(selected))))
-    return parsed[0], [[None if v == '' else float(v) for v in row] for row in parsed[1:]]
+    data = [[None if v == '' else float(v) for v in row] for row in parsed[1:]]
+    assert parsed[0][2] == 'run_time_s'
+    first = {}
+    for run, t, run_time, *_ in data:
+        first.setdefault(run, t)
+        assert run_time == pytest.approx(t - first[run], abs=1e-9)
+    return [*parsed[0][:2], *parsed[0][3:]], [[*row[:2], *row[3:]] for row in data]
 
 
 def test_mixed_rates_keep_every_timestamp_and_never_interpolate():
@@ -91,3 +98,16 @@ def test_channels_sharing_timestamps_fill_the_same_rows():
                       'b/1': {1: [(.05, 9)]}})
     _, data = rows(lab)
     assert data == [[1, 0, 1, 5, None], [1, .05, None, None, 9], [1, .1, 2, 6, None]]
+
+
+def test_run_time_restarts_at_zero_each_run_and_ignores_column_filtering():
+    lab = experiment({'a/1': {1: [(.5, 1), (.6, 2)], 2: [(10.25, 3), (10.35, 4)]},
+                      'b/1': {1: [(.45, 9)], 2: [(10.3, 8)]}})
+    parsed = list(csv.reader(io.StringIO(lab.export_csv())))
+    assert parsed[0][:3] == ['run', 'time_s', 'run_time_s']
+    assert [(r[0], r[1], r[2]) for r in parsed[1:]] == [
+        ('1', '0.45', '0.0'), ('1', '0.5', '0.05'), ('1', '0.6', '0.15'),
+        ('2', '10.25', '0.0'), ('2', '10.3', '0.05'), ('2', '10.35', '0.1')]
+    # A graph export of only a/1 keeps the same run-relative times.
+    graph = list(csv.reader(io.StringIO(lab.export_csv(['a/1']))))
+    assert [r[:3] for r in graph] == [r[:3] for r in parsed]

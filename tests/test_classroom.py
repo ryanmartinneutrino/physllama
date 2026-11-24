@@ -111,8 +111,8 @@ def test_groups_have_independent_runs_settings_data_and_exports(classroom):
     assert api(client, a).json()['total_points'] == stopped_points
     assert api(client, a, 'export?series=demo-1/2').status_code == 400
     rows = list(csv.DictReader(io.StringIO(api(client, b, 'export').text)))
-    assert len(rows[0]) == 3
-    assert 'Acceleration X [m/s²]' in list(rows[0])[2]
+    assert len(rows[0]) == 4
+    assert 'Acceleration X [m/s²]' in list(rows[0])[3]
     assert api(client, a, 'reset', {}).status_code == 200
     assert api(client, a).json()['total_points'] == 0
     assert api(client, b).json()['recording']

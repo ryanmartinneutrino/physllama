@@ -105,7 +105,7 @@ def test_two_independent_families_share_acquisition_and_export(monkeypatch):
         assert not stopped['recording']
         assert {s['device_id'] for s in stopped['series']} == {'a', 'b'}
         rows = list(csv.DictReader(io.StringIO(client.get('/api/export').text)))
-        columns = list(rows[0])[2:]
+        columns = list(rows[0])[3:]
         assert len(columns) == 2
         assert '(a/101' in columns[0] and '(b/101' in columns[1]
         assert all('[m]' in column and 'DEMO' not in column for column in columns)
