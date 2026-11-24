@@ -127,10 +127,11 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 
 - Connect one or more recognized Bluetooth devices. The Devices panel manages connections and battery status. Sensor selection happens only in graph dropdowns.
 - Connect the devices to record, choose which channels to display in the graphs’ **Sensors** dropdowns, then choose a sampling interval between 10 and 10,000 ms (100 Hz to 0.1 Hz). The app checks the channel's reported limits, granularity, and mutually exclusive sensor combinations. Start at 50 ms; Bluetooth throughput varies with device and channel count.
-- **Start collection** starts a new run and the scientist llama runs beside the collection status. **Stop** keeps the data and returns the llama to its standing pose. Errors and lost server connections also stop the animation; reduced-motion preferences keep it still while the text reports the recording state. Start again to append another run, with a time gap and a break in the plotted line. Stop before changing devices or sampling settings.
+- **Start collection** starts a new run and the scientist llama runs beside the collection status. **Stop** keeps the data and returns the llama to its standing pose. Errors and lost server connections also stop the animation; reduced-motion preferences keep it still while the text reports the recording state. Start again to append another run, with a time gap. Stop before changing devices or sampling settings.
 - Each graph has a **Sensors** dropdown with checkboxes grouped by device. **Start records all supported compatible sensor channels on every connected device**, even with no graph selections. Graph checkboxes control plotting and graph-specific CSV columns, not whether ordinary channels are recorded. New graphs start with no sensors selected. Check channels from one or more devices to overlay them; each graph keeps its own selection. All supported connected sensors are available directly in the dropdown. Disconnecting or removing a device removes its channels from graph inputs and clears their graph selections; the top CSV export still includes their recorded data. Reconnect and select the channels again to plot them. While recording, you can show or hide already-recorded channels; stop first to add a previously unrecorded sensor. Removing a graph or hiding a trace does not change what is recorded in the current or next run. For devices with mutually exclusive channels (such as alternative ranges), plotted choices take priority and the note below the collection controls lists omitted alternatives. Select an alternative while stopped and uncheck its conflicting range to use it next run. Unsupported event channels cannot be recorded. Different units use separate labeled axes; series with the same units share an axis.
 - Click the **experiment name** at the top to rename the experiment. The name is shared with teammates and used in the top CSV filename.
 - Graphs have a single editable title. Automatic titles renumber after deletion; custom titles survive deletion of other graphs and page reloads.
+- Graphs plot each recorded sample as a separate point, with no connecting line, so the plot shows exactly when data was collected.
 - Scroll to zoom, drag a zoom rectangle, or select pan in the Plotly toolbar. Hover for the sensor, value, units, time, and run. Zooming switches off **Follow live**. **Fit view** resets the axes; check **Follow live** to keep fitting new samples.
 - **Download CSV** on a graph exports only that graph’s checked sensors, across all recorded runs, regardless of zoom or display reduction. Its filename includes the graph title. **Export CSV** at the top exports **every recorded channel from all connected devices**, including unplotted channels and data from devices subsequently disconnected. Both CSV buttons retain every experiment timestamp and run; graph exports filter only the columns. Measurements that were not acquired in an older recording cannot be recovered retroactively. The Plotly camera button exports a graph as an image.
 - **Reset** asks before removing all collected runs. It preserves device connections and the graph layout.
@@ -138,27 +139,37 @@ Keep the sensor awake and nearby, enable Bluetooth, and close Graphical Analysis
 
 **Add demo device** provides clearly labeled generated force/acceleration measurements for trying the interface without hardware. Add it more than once to test multiple devices. Synthetic and real measurements cannot be recorded in the same session, even across separate runs; export and reset before switching. Disconnect demo devices before starting real acquisition; unchecking their graph channels does not exclude them from recording.
 
+## How sampling works
+
+The **sampling interval** is the time between samples (rate in Hz = 1000 ÷ interval). One interval applies to every connected device, and every recorded channel must accept it, so the allowed range is limited by the most restrictive channel. The collection bar and each device card show the limits that apply. How samples are taken depends on the device family:
+
+- **Go Direct (device-clocked):** PhysLlama sends the interval to the sensor, which samples on its own clock, buffers the values, and streams them over Bluetooth. Sample times are the run’s start time plus a whole number of intervals, so spacing is exactly uniform. If the device reports dropped samples, collection stops with an error rather than silently compressing time.
+- **PASCO (polled):** PhysLlama asks the sensor for a reading once per interval and timestamps each reading at the midpoint of the request and reply. Polling is capped at 50 Hz, and Bluetooth round trips can make the achieved rate lower and slightly irregular. Each PASCO device card shows the average rate achieved in the latest run.
+- **Demo (simulated):** values at exactly the requested interval.
+
+Devices are not synchronized with each other, so samples from different devices generally fall at different times. The CSV keeps each device’s samples at its own times (see below).
+
 ## Data, units, and timing
 
 The app records SDK-decoded measurements without extra scaling or calibration. Smart Cart position is zeroed at the first sample of each run, matching the previous cart app; its derived velocity and speed use a rolling least-squares fit to the last three position samples. Derivative history is cleared on every Start, so it never spans a pause. Initial or unavailable derivatives are missing values, not invented zeros. Other measurements have no additional zero offset. An empty unit field is labeled `a.u.` (arbitrary units). Device calibration is handled by the device firmware and its adapter library. Advanced calibration workflows and aperiodic/event channels are not implemented.
 
-CSV is in **wide format**: one row per time, one column per recorded sensor channel, plus `run` and `time_s`. For example:
+CSV is in **wide format**: one row per sample time, one column per recorded sensor channel, plus `run` and `time_s`. For example, with two devices whose samples were taken at different times:
 
 ```text
 run,time_s,Bench 1 — Force [N] (cart-a/1001; 123-456; Smart Cart),Bench 2 — Position [m] (cart-b/3001; 654-321; Smart Cart)
-1,0.05,1.25,0.12
-1,0.10,1.30,0.15
+1,0.051,1.25,
+1,0.063,,0.12
+1,0.112,1.30,
+1,0.124,,0.15
 ```
 
 Headers include the current device nickname, channel name, unit, immutable channel/device ID, original advertised name when different, and printed PASCO serial when available. Demo columns also include `DEMO`. Renaming changes the header without changing raw samples or their identities. `time_s` is relative to the first Start and includes pauses; `run` distinguishes recording runs.
 
-To align different sampling rates, each run uses the **union of all actual sample times**. Both the top-level and graph CSV include one row for every distinct `(run, time_s)` in the experiment; graph filtering changes only the columns. No beginning/end samples or entire runs are trimmed. Values at their own timestamps are retained; values between two valid samples are linearly interpolated. This fills asynchronous interior samples without downsampling faster channels. Raw timestamps and measurements remain unchanged in the graphs and state API.
-
-Interpolation never crosses a Stop/Start boundary, an explicitly missing sample, or a channel’s measured endpoints. Before a channel’s first sample, after its last sample, or in a run where it was not recorded, its cells remain blank. The initial unavailable cart velocity/speed also remains blank. These blanks retain the complete experiment timeline without inventing zeros or extrapolated measurements. Interpolated values are an alignment for plotting, not additional measured data or hardware synchronization.
+Rows are the **union of all actual sample times** in each run. Every cell is a raw measurement taken at exactly that row’s time; **nothing is interpolated or resampled**. A cell is blank when that channel has no sample at that time: another device’s sample time, before or after the channel was recorded, a run where it was not recorded, or a missing measurement (such as the initial cart velocity/speed). Channels from the same device share timestamps, so they fill the same rows; devices with different rates or start times fill interleaved rows. Both the top-level and graph CSV include one row for every distinct `(run, time_s)` in the experiment; graph filtering changes only the columns.
 
 For Go Direct and demo devices, sample times are reconstructed from the requested sampling interval and the host's monotonic time immediately before each device's Start command. PASCO samples use the midpoint of the host-monotonic request/response interval, as in the Smart Cart app; their actual, potentially irregular spacing is preserved. Reading multiple sensor groups involves separate Bluetooth requests, so one batch timestamp is an approximation, not synchronized acquisition across its channels. Devices are **not hardware synchronized**, so there can be Bluetooth command latency between their actual starts. This is suitable for introductory force/motion exploration, not precise cross-device phase measurements. Reported dropped-sample packets stop collection with an error instead of silently compressing the time axis. A connection loss or data timeout also stops collection and preserves prior samples.
 
-Data lives in the local service's memory. Refreshing or reopening the browser recovers the current session; exiting the service loses it. Export before stopping the app. The session stops at **250,000 channel values** without discarding earlier samples. Large graphs use min/max display reduction after 4,000 values per series; CSV alignment uses full-resolution data and preserves every recorded timestamp, independent of display reduction. Experiment names live with the experiment; graph preferences are saved in browser storage.
+Data lives in the local service's memory. Refreshing or reopening the browser recovers the current session; exiting the service loses it. Export before stopping the app. The session stops at **250,000 channel values** without discarding earlier samples. Large graphs use min/max display reduction after 4,000 values per series; CSV export uses full-resolution data and preserves every recorded timestamp, independent of display reduction. Experiment names live with the experiment; graph preferences are saved in browser storage.
 
 ## Verification status
 
@@ -192,7 +203,7 @@ run.py                       Command-line launcher; --server or --multi network 
 start.sh                     Linux/macOS virtualenv setup and launch
 physllama/server.py          HTTP API and static asset serving
 physllama/classroom.py       Group sessions and exclusive Bluetooth reservations
-physllama/csv_export.py      Wide CSV with per-run interpolation
+physllama/csv_export.py      Wide CSV, one row per sample time, no interpolation
 physllama/acquisition.py     Serialized Bluetooth worker and session store
 physllama/hardware.py        Shared Bluetooth scan and device registry
 physllama/devices/base.py    InputDevice, BluetoothDriver, Channel and Reading contracts

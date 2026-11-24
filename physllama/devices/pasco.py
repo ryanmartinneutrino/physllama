@@ -156,6 +156,8 @@ class CompatiblePascoDevice(PASCOBLEDevice):
 class PascoDevice:
     demo = False
     driver = 'pasco'
+    # The host requests each sample; the achieved rate depends on Bluetooth.
+    timing = 'polled'
     ATTEMPTS = 3
     RETRY_DELAY = 1
     ATTEMPT_TIMEOUT = 30
@@ -169,9 +171,8 @@ class PascoDevice:
         self.discovered_device = device
         self.sensors = []
         self.battery, self.charging = None, False
-        self.acquisition_note = ('Polled samples: actual rate depends on Bluetooth and selected channels.'
-            + (' Position starts at zero each run; velocity and speed use the last 3 position samples.'
-               if self.model == 'Smart Cart' else ''))
+        self.acquisition_note = ('Position starts at zero each run; velocity and speed use the last 3 position samples.'
+                                 if self.model == 'Smart Cart' else '')
         self.raw = None
         self._ready = self._recording = self._closing = False
         self._thread = None

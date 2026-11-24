@@ -148,6 +148,8 @@ class GoDirectDevice:
     demo = False
     driver = 'go-direct'
     family = 'Go Direct'
+    # The sensor samples on its own clock and streams buffered values.
+    timing = 'device'
 
     ATTEMPTS = 3
     ATTEMPT_TIMEOUT = 30

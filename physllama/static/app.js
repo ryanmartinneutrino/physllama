@@ -2,6 +2,8 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const colors = ['#1e5480', '#db9260', '#7290bd', '#aa7cb1', '#a9a34c', '#6596bf', '#c76e76'];
 const points = new Map();
+// Latest-run timing per series: {run, first, last, n}. Used to report achieved rates.
+const runStats = new Map();
 let state = {devices: [], series: [], recording: false, total_points: 0, period_ms: 50};
 let generation = '', cursor = 0, busy = false, offline = false, deviceSignature = '', channelSignature = '', revision = 0;
 let lastError = '', graphCounter = 0, quitting = false;
@@ -111,13 +113,16 @@ function applyState(next, withPoints) {
     $('#experiment-title').value = next.experiment_name;
   }
   if (next.generation !== generation) {
-    generation = next.generation; cursor = 0; points.clear(); revision++;
+    generation = next.generation; cursor = 0; points.clear(); runStats.clear(); revision++;
     for (const graph of graphs) graph.fit++;
   }
   if (withPoints) {
     for (const point of next.points) {
       if (!points.has(point.series)) points.set(point.series, []);
       points.get(point.series).push(point);
+      const stats = runStats.get(point.series);
+      if (!stats || stats.run !== point.run) runStats.set(point.series, {run: point.run, first: point.t, last: point.t, n: 1});
+      else { stats.last = point.t; stats.n++; }
     }
     cursor = next.cursor;
     if (next.points.length) revision++;
@@ -146,6 +151,7 @@ function renderControls() {
     ? `Recording all compatible channels. Alternative channels not recorded: ${omitted.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`
     : 'All supported channels on connected devices are recorded. Graph selections only control what you plot and export from that graph.';
   $('#device-count').textContent = connected.length;
+  $('#sampling-note').textContent = samplingNote(connected, configuration);
   $('#start').disabled = busy || connecting() || offline || state.recording || !channels;
   $('#stop').disabled = busy || connecting() || offline || !state.recording;
   $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
@@ -171,8 +177,55 @@ function renderControls() {
   $('#supported-devices').textContent = `Supported: ${(state.supported_devices || []).map(d => d.label).join(', ') || 'checking…'}`;
   $('#demo-banner').hidden = !state.devices.some(d => d.demo && d.connected) && !state.series.some(s => s.demo);
 }
+// Interval limits that every channel recorded on this device accepts.
+function intervalLimits(device, numbers) {
+  const sensors = device.sensors.filter(s => s.supported && (!numbers || numbers.includes(s.number)));
+  if (!sensors.length) return null;
+  const steps = [...new Set(sensors.map(s => s.step_ms).filter(step => step > 0 && step !== 1))];
+  return {min: Math.max(...sensors.map(s => s.minimum_ms)), max: Math.min(...sensors.map(s => s.maximum_ms)), steps};
+}
+const formatMs = ms => `${ms.toLocaleString(undefined, {maximumFractionDigits: 2})} ms`;
+const formatHz = hz => `${hz.toLocaleString(undefined, {maximumFractionDigits: hz < 10 ? 2 : 1})} Hz`;
+function achievedRate(deviceId) {
+  // Average rate over the latest run: (samples − 1) ÷ (last time − first time).
+  let best = null;
+  for (const [id, stats] of runStats) {
+    if (!id.startsWith(`${deviceId}/`) || stats.n < 2 || stats.last <= stats.first) continue;
+    if (!best || stats.run > best.run || (stats.run === best.run && stats.n > best.n)) best = stats;
+  }
+  return best && {run: best.run, hz: (best.n - 1) / (best.last - best.first), n: best.n};
+}
+function samplingDetails(device) {
+  const numbers = state.recording ? device.selected : recordingConfiguration()[device.id];
+  const limits = intervalLimits(device, numbers);
+  const range = limits ? ` Accepts ${formatMs(limits.min)}–${formatMs(limits.max)}${limits.steps.length ? ` in multiples of ${limits.steps.map(formatMs).join(', ')}` : ''}.` : '';
+  let how;
+  if (device.timing === 'polled') {
+    const rate = achievedRate(device.id);
+    how = `Polled: this computer requests each reading, so the achieved rate can be lower than requested.${range}`
+      + (rate ? ` <strong>Run ${rate.run}: ${formatHz(rate.hz)} achieved</strong> (${formatHz(1000 / state.period_ms)} requested).` : '');
+  } else if (device.timing === 'device') {
+    how = `Device-clocked: the sensor samples at the requested interval on its own clock and streams the data.${range}`;
+  } else if (device.timing === 'simulated') {
+    how = `Simulated at exactly the requested interval.${range}`;
+  } else {
+    how = range.trim();
+  }
+  return how ? `<p class="sampling-detail"><span>Sampling</span> ${how}</p>` : '';
+}
+function samplingNote(connected, configuration) {
+  if (!connected.length) return 'The sampling interval is the time between samples; it applies to every connected device.';
+  const limits = connected.map(d => intervalLimits(d, configuration[d.id])).filter(Boolean);
+  const range = limits.length ? ` With the channels being recorded, choose ${formatMs(Math.max(...limits.map(l => l.min)))}–${formatMs(Math.min(...limits.map(l => l.max)))}.` : '';
+  const families = timing => [...new Set(connected.filter(d => d.timing === timing).map(d => d.family))].join(', ');
+  const parts = [];
+  if (families('device')) parts.push(`${families('device')}: the sensor samples on its own clock at exactly this interval and streams the data`);
+  if (families('polled')) parts.push(`${families('polled')}: this computer polls the sensor, so the achieved rate may be lower and slightly irregular (shown on the device card)`);
+  return `This interval (${formatHz(1000 / state.period_ms)}) applies to every connected device.${range}${parts.length ? ` ${parts.join('; ')}.` : ''} Devices are not synchronized with each other.`;
+}
 function renderDevices() {
-  const signature = JSON.stringify([state.devices, state.recording, busy, offline, connection]);
+  const rates = state.devices.filter(d => d.timing === 'polled').map(d => achievedRate(d.id)?.hz.toFixed(1));
+  const signature = JSON.stringify([state.devices, state.recording, busy, offline, connection, rates]);
   if (signature === deviceSignature) return;
   deviceSignature = signature;
   $('#device-empty').hidden = state.devices.length > 0;
@@ -194,6 +247,7 @@ function renderDevices() {
       <button class="text-button rename-device" data-device-action="rename" ${disabled || (d.owned === false ? 'disabled' : '')}>Rename device</button>
       ${d.connected && !d.demo ? `<button class="battery-button" data-device-action="battery" ${disabled} title="Refresh battery while collection is stopped">▰ ${d.battery == null ? 'Battery unavailable' : `${d.battery}%${d.charging ? ' · charging' : ''}`} · refresh</button>` : ''}
       ${d.connected ? `<p class="small muted">${d.sensors.filter(s => s.supported).length} sensor channels · recorded even when not plotted.</p>` : ''}
+      ${d.connected ? samplingDetails(d) : ''}
       ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
     </article>`;
   }).join('');
@@ -326,14 +380,11 @@ async function drawGraph(graph) {
   const plot = $('.plot', graph.node);
   const traces = channels.map(s => {
     const data = displayPoints(points.get(s.id) || []), x = [], y = [], runs = [];
-    let run;
-    for (const point of data) {
-      if (run !== undefined && point.run !== run) { x.push(null); y.push(null); runs.push(null); }
-      x.push(point.t); y.push(point.value); runs.push(point.run); run = point.run;
-    }
+    for (const point of data) { x.push(point.t); y.push(point.value); runs.push(point.run); }
     const unitIndex = units.indexOf(s.unit);
-    return {x, y, customdata: runs, name: `${s.device} · ${s.name}`, type: 'scatter', mode: 'lines',
-      line: {color: colorFor(s.id), width: 2}, yaxis: unitIndex ? `y${unitIndex + 1}` : 'y', connectgaps: false,
+    return {x, y, customdata: runs, name: `${s.device} · ${s.name}`, type: 'scatter', mode: 'markers',
+      // Plot each recorded sample as its own point; no line implies values between samples.
+      marker: {color: colorFor(s.id), size: 5}, yaxis: unitIndex ? `y${unitIndex + 1}` : 'y',
       hovertemplate: `${esc(s.name)}: <b>%{y:.4g} ${esc(s.unit)}</b><br>%{x:.4f} s · run %{customdata}<extra>${esc(s.device)}</extra>`};
   });
   const axis = {gridcolor: '#eef0f2', zerolinecolor: '#dbe1e6', tickfont: {size: 10, color: '#909aa2'},
@@ -354,7 +405,7 @@ async function drawGraph(graph) {
     layout.xaxis.range = [0, 10]; layout.xaxis.autorange = false;
     layout.yaxis.range = [-5, 5];
     layout.annotations = [{xref: 'paper', yref: 'paper', x: .5, y: .56, showarrow: false,
-      text: `<b>${channels.length ? 'Your experiment is ready' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#949ea7">${channels.length ? 'Start collection to see your measurements here.' : 'Open the Sensors dropdown to start plotting.'}</span>`,
+      text: `<b>${channels.length ? 'No data yet' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#949ea7">${channels.length ? 'Start collection to see your measurements here.' : 'Open the Sensors dropdown to start plotting.'}</span>`,
       font: {size: 15, color: '#70818f'}, bgcolor: 'rgba(255,255,255,.94)', borderpad: 15}];
   }
   try {
@@ -369,7 +420,7 @@ async function drawGraph(graph) {
       graph.listeners = true;
     }
     $('.legend', graph.node).innerHTML = channels.length ? channels.map(s => `<span class="legend-item"><i class="swatch" style="background:${colorFor(s.id)}"></i>${esc(s.name)}${channels.filter(c => c.name === s.name).length > 1 ? ` (${esc(s.device)})` : ''} <span class="muted">${esc(s.unit)}</span></span>`).join('') : '<span>No channels selected</span>';
-    $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Reduced display · CSV uses full-resolution data' : 'Hover to inspect · time in seconds';
+    $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Showing the minimum and maximum sample in each time bucket · CSV contains every sample' : 'Each point is one recorded sample · hover to inspect';
   } catch (error) { showNotice(`Graph could not be drawn: ${error.message}`); }
   finally { graph.drawing = false; }
 }

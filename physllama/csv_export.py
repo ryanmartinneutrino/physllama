@@ -1,4 +1,4 @@
-"""Wide, per-run CSV alignment. Raw samples in Lab are never modified."""
+"""Wide CSV: one row per recorded (run, time). Raw samples are written unmodified, never interpolated."""
 import csv
 import io
 import math
@@ -36,31 +36,9 @@ def wide_csv(series, points):
 
     for run, timeline in sorted(timelines.items()):
         channels = runs.get(run, {})
-        samples = {key: sorted(values.items()) for key, values in channels.items()}
-        times = sorted(timeline)
-        cursors = {key: 0 for key in samples}
-        for t in times:
-            row = [run, t]
-            for key in ids:
-                values = samples.get(key, [])
-                if not values:
-                    row.append(None)
-                    continue
-                i = cursors[key]
-                while i + 1 < len(values) and values[i + 1][0] <= t:
-                    i += 1
-                cursors[key] = i
-                before, value = values[i]
-                if before == t:
-                    row.append(value)
-                elif before < t and i + 1 < len(values):
-                    after, following = values[i + 1]
-                    # A missing sample is a real gap, not permission to bridge it.
-                    interpolated = None if value is None or following is None else (
-                        value * (1 - (t - before) / (after - before))
-                        + following * ((t - before) / (after - before)))
-                    row.append(interpolated)
-                else:
-                    row.append(None)  # Never extrapolate beyond measured endpoints.
-            writer.writerow(row)
+        for t in sorted(timeline):
+            # Only values measured at exactly this time; no interpolation. A
+            # channel without a sample at this time (another device's sample
+            # time, outside its run, or a missing measurement) is left blank.
+            writer.writerow([run, t, *(channels.get(key, {}).get(t) for key in ids)])
     return output.getvalue()

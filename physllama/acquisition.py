@@ -336,7 +336,7 @@ class Lab:
                 nickname=self.names.get(d.id, ''), serial=getattr(d, 'serial', None),
                 acquisition_note=getattr(d, 'acquisition_note', ''),
                 rssi=d.rssi, demo=d.demo, connected=d.connected,
-                driver=d.driver, family=d.family,
+                driver=d.driver, family=d.family, timing=getattr(d, 'timing', None),
                 battery=d.battery, charging=d.charging, sensors=copy.deepcopy(d.sensors),
                 selected=self.selected.get(d.id, [])) for d in self.devices.values()])
 

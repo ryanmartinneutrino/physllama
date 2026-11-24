@@ -33,6 +33,7 @@ class InputDevice(Protocol):
     name: str
     driver: str
     family: str
+    timing: str  # 'device' (device clock, streamed), 'polled' (host requests each sample) or 'simulated'
     rssi: int | None
     demo: bool
     battery: int | None

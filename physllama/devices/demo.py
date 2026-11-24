@@ -7,6 +7,7 @@ class DemoDevice:
     demo = True
     driver = 'demo'
     family = 'Demo'
+    timing = 'simulated'
 
     def __init__(self, number=1):
         self.id, self.name, self.rssi = f'demo-{number}', f'Demo Motion & Force {number}', None

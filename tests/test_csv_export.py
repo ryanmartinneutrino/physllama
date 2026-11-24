@@ -25,7 +25,7 @@ def rows(lab, selected=None):
     return parsed[0], [[None if v == '' else float(v) for v in row] for row in parsed[1:]]
 
 
-def test_mixed_rates_keep_every_timestamp_and_interpolate_only_between_samples():
+def test_mixed_rates_keep_every_timestamp_and_never_interpolate():
     lab = experiment({'a/1': {1: [(0, 0), (1, 10), (2, 20), (3, 30)]},
                       'b/1': {1: [(.5, 101), (2.5, 105)]}})
     before = copy.deepcopy(lab.points)
@@ -34,19 +34,19 @@ def test_mixed_rates_keep_every_timestamp_and_interpolate_only_between_samples()
     assert len(header) == 4
     assert 'a/1' in header[2] and 'b/1' in header[3]
     assert '123-456' in header[2] and 'Position [m]' in header[2]
-    assert data == [[1, 0, 0, None], [1, .5, 5, 101], [1, 1, 10, 102], [1, 2, 20, 104], [1, 2.5, 25, 105], [1, 3, 30, None]]
+    assert data == [[1, 0, 0, None], [1, .5, None, 101], [1, 1, 10, None], [1, 2, 20, None], [1, 2.5, None, 105], [1, 3, 30, None]]
     assert lab.points == before
     # A graph export changes only the columns, keeping the same experiment times.
     header, data = rows(lab, ['a/1'])
     assert len(header) == 3
-    assert data == [[1, t, 10*t] for t in (0, .5, 1, 2, 2.5, 3)]
+    assert data == [[1, 0, 0], [1, .5, None], [1, 1, 10], [1, 2, 20], [1, 2.5, None], [1, 3, 30]]
 
 
 def test_runs_never_interpolate_across_pauses_or_invent_absent_channels():
     lab = experiment({'a/1': {1: [(0, 1), (1, 3)], 2: [(10, 8), (11, 10)]},
                       'b/1': {1: [(0, 2), (.5, 4), (1, 6)]}})
     _, data = rows(lab)
-    assert data == [[1, 0, 1, 2], [1, .5, 2, 4], [1, 1, 3, 6],
+    assert data == [[1, 0, 1, 2], [1, .5, None, 4], [1, 1, 3, 6],
                     [2, 10, 8, None], [2, 11, 10, None]]
 
 
@@ -84,3 +84,10 @@ def test_graph_export_keeps_rows_from_runs_with_only_other_channels():
     header, data = rows(lab, ['a/1'])
     assert len(header) == 3
     assert data == [[1, 0, 2], [2, 10, None], [2, 11, None]]
+
+
+def test_channels_sharing_timestamps_fill_the_same_rows():
+    lab = experiment({'a/1': {1: [(0, 1), (.1, 2)]}, 'a/2': {1: [(0, 5), (.1, 6)]},
+                      'b/1': {1: [(.05, 9)]}})
+    _, data = rows(lab)
+    assert data == [[1, 0, 1, 5, None], [1, .05, None, None, 9], [1, .1, 2, 6, None]]
