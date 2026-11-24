@@ -175,3 +175,20 @@
 #hide-devices { padding: 7px 9px; }
 #hide-devices span { font-size: 18px; line-height: 1; }
 #show-devices { margin-bottom: 16px; }
+
+/* Distribution fits and paired-sensor analysis. */
+.histogram-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.histogram-summary, .xy-correlation { color: #315a79; font-variant-numeric: tabular-nums; }
+.gaussian-results table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.gaussian-results td, .gaussian-results th { text-align: right; padding: 8px; border-bottom: 1px solid #e1e8ee; }
+.gaussian-results td:first-child, .gaussian-results th:first-child { text-align: left; }
+.gaussian-results th { background: #f3f7fa; }
+.gaussian-results p { line-height: 1.6; }
+.analysis-warning { color: #945b32; background: #fff4e9; padding: 10px 12px; border-radius: 6px; line-height: 1.6; }
+.gaussian-message { line-height: 1.6; }
+.xy-form input, .xy-fit-form input { max-width: 100%; min-width: 0; border: 1px solid #cbd8e2; background: white; border-radius: 6px; padding: 8px 10px; color: #314c61; font: inherit; }
+.xy-custom, .xy-matching { margin-top: 12px; }
+.xy-plot { height: 360px; min-width: 0; overflow: hidden; }
+.xy-pairs { margin-top: 12px; }
+.xy-message, .xy-fit-message { color: #315a79; }
+@media (max-width: 800px) { .xy-plot { height: 310px; } }

@@ -1,3 +1,5 @@
+import {fitGaussian} from './gaussian.mjs';
+import {attachXY} from './xy-ui.js';
 import {samplesInRange, statistics, histogram, MAX_HISTOGRAM_BINS, fitModels} from './analysis.mjs';
 const $ = (selector, root) => root.querySelector(selector);
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10,14 +12,16 @@ export function attachAnalysis(graph, getContext, changeScope) {
   const root = document.createElement('section'); root.className = 'graph-analysis';
   root.setAttribute('aria-label', 'Graph data analysis');
   root.innerHTML = `<div class="analysis-toolbar"><label>Show <select class="data-scope" aria-label="Graph data scope"><option value="all">All runs</option><option value="current">Current run</option></select></label><span class="analysis-status small muted"></span></div>
-    <div class="analysis-tabs">${[['table', 'Data table'], ['stats', 'Statistics'], ['fit', 'Fit']].map(([id, name]) => `<button type="button" class="analysis-toggle" data-panel="${id}" aria-expanded="false" aria-controls="analysis-${graph.id}-${id}">${name} <span aria-hidden="true">⌄</span></button>`).join('')}</div>
-    <div class="analysis-panel" id="analysis-${graph.id}-table" data-content="table" hidden><div class="table-controls"><label><input type="checkbox" class="table-visible"> Visible time range only</label><span class="table-count small muted"></span></div><p class="small muted">Full-resolution samples for the selected runs. Times are seconds since the first Start; blanks mean no measurement at that timestamp.</p><div class="data-table"></div><div class="table-pagination"><button class="table-prev button">Previous</button><span class="table-page small"></span><button class="table-next button">Next</button></div></div>
+    <div class="analysis-tabs">${[['table', 'Data table'], ['stats', 'Statistics'], ['fit', 'Fit'], ['xy', 'X–Y analysis']].map(([id, name]) => `<button type="button" class="analysis-toggle" data-panel="${id}" aria-expanded="false" aria-controls="analysis-${graph.id}-${id}">${name} <span aria-hidden="true">⌄</span></button>`).join('')}</div>
+    <div class="analysis-panel" id="analysis-${graph.id}-table" data-content="table" hidden><div class="table-controls"><label><input type="checkbox" class="table-visible"> Visible time range only</label><span class="table-count small muted"></span><button type="button" class="button compare-columns">Compare columns</button></div><p class="small muted">Full-resolution samples for the selected runs. Times are seconds since the first Start; blanks mean no measurement at that timestamp.</p><div class="data-table"></div><div class="table-pagination"><button class="table-prev button">Previous</button><span class="table-page small"></span><button class="table-next button">Next</button></div></div>
     <div class="analysis-panel" id="analysis-${graph.id}-stats" data-content="stats" hidden><h3>Statistics</h3><p class="small muted">Each sensor uses all finite samples in the visible time interval, including points outside the vertical axis limits. RMS = √mean(y²).</p><div class="stats-table"></div></div>
-    <div class="analysis-panel" id="analysis-${graph.id}-fit" data-content="fit" hidden><h3>Fit visible data</h3><form class="fit-form"><div class="fit-controls"><label>Sensor<select class="fit-sensor" aria-label="Fit sensor"></select></label><label>Function<select class="fit-model" aria-label="Fit function">${Object.entries(fitModels).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join('')}</select></label><label>Y uncertainty (1σ)<input class="fit-sigma" aria-label="Y uncertainty" type="text" inputmode="decimal" placeholder="e.g. 0.1" required autocomplete="off"></label><button class="button primary fit-submit" type="submit">Fit visible data</button></div><p class="fit-unit small muted"></p><p class="small muted">One positive standard deviation for every point. Assumes independent y errors and exact times. Linear and quadratic fits need no initial guesses.</p></form><p class="fit-message small" role="status">Choose a sensor and enter its measurement uncertainty.</p><div class="fit-results" hidden></div><div class="fit-preview" hidden></div></div>`;
+    <div class="analysis-panel" id="analysis-${graph.id}-fit" data-content="fit" hidden><h3>Fit visible data</h3><form class="fit-form"><div class="fit-controls"><label>Sensor<select class="fit-sensor" aria-label="Fit sensor"></select></label><label>Function<select class="fit-model" aria-label="Fit function">${Object.entries(fitModels).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join('')}</select></label><label>Y uncertainty (1σ)<input class="fit-sigma" aria-label="Y uncertainty" type="text" inputmode="decimal" placeholder="e.g. 0.1" required autocomplete="off"></label><button class="button primary fit-submit" type="submit">Fit visible data</button></div><p class="fit-unit small muted"></p><p class="small muted">One positive standard deviation for every point. Assumes independent y errors and exact times. Linear and quadratic fits need no initial guesses.</p></form><p class="fit-message small" role="status">Choose a sensor and enter its measurement uncertainty.</p><div class="fit-results" hidden></div><div class="fit-preview" hidden></div></div><div class="analysis-panel" id="analysis-${graph.id}-xy" data-content="xy" hidden></div>`;
   graph.node.append(root);
+  const xy = attachXY($('[data-content="xy"]', root), () => ({...context, scope: graph.scope}));
   const scope = $('.data-scope', root); scope.value = graph.scope;
   let context, signature = '', sensorSignature = '', runSignature = '', page = 0, rows = [], fitShown = false;
   let histogramDialog = null, histogramSensor = null, histogramOptions = null, fitInput = null;
+  let histogramState = null, gaussian = null, histogramVersion = 0, histogramDirty = false;
   const dataKey = () => JSON.stringify([context.generation, context.recording, context.run, graph.scope, context.channels.map(s => [s.id, s.name, s.device, s.unit])]);
   const visible = s => samplesInRange(s.samples, context.range);
   const invalidateFit = () => {
@@ -58,27 +62,53 @@ export function attachAnalysis(graph, getContext, changeScope) {
       return `<tr>${[label(s), stats.n, ...['min', 'max', 'mean', 'rms'].map(k => number(stats[k]))].map(v => `<td>${esc(v)}</td>`).join('')}<td><button class="button histogram-button" data-sensor="${esc(s.id)}" aria-label="Histogram for ${esc(label(s))}" ${stats.n ? '' : 'disabled'}>Histogram</button></td></tr>`;
     })) : '<p class="muted">Select sensors on the graph to see statistics.</p>';
   }
-  async function renderHistogram(options = histogramOptions) {
+  function clearGaussian(message = '') {
+    gaussian = null;
+    $('.gaussian-results', histogramDialog).hidden = true;
+    $('.gaussian-message', histogramDialog).textContent = message;
+    $('.gaussian-message', histogramDialog).classList.remove('analysis-warning');
+  }
+  async function drawHistogram() {
+    if (!histogramDialog?.open || !histogramState) return;
+    const {sensor, bins, included} = histogramState;
+    const traces = [{type: 'bar', x: bins.centers, y: bins.counts, width: bins.width,
+      marker: {color: sensor.color}, customdata: bins.centers.map(x => [x - bins.width / 2, x + bins.width / 2]),
+      hovertemplate: 'Range: %{customdata[0]:.5g}–%{customdata[1]:.5g}<br>Count: %{y}<extra></extra>'}];
+    if (gaussian) traces.push({type: 'scatter', mode: 'lines', name: 'Gaussian expected counts', x: bins.centers, y: gaussian.expected,
+      line: {color: gaussian.status === 'poor' ? '#a45d2b' : '#314c61', width: 2, dash: gaussian.status === 'poor' ? 'dash' : 'solid'},
+      hovertemplate: 'Gaussian expected count: %{y:.5g}<extra></extra>'});
+    try {
+      await Plotly.react($('.histogram-plot', histogramDialog), traces, {
+        margin: {t: 20, b: 60, l: 60, r: 20}, showlegend: false,
+        xaxis: {title: {text: sensor.unit || 'Value'}, range: [bins.min, bins.max]},
+        yaxis: {title: {text: 'Count'}, rangemode: 'tozero', dtick: included.length < 10 ? 1 : undefined},
+        annotations: included.length ? [] : [{text: histogramState.samples.length ? 'No samples in this value range' : 'No samples in the visible interval', showarrow: false, xref: 'paper', yref: 'paper', x: .5, y: .5}],
+      }, {responsive: true, displaylogo: false});
+    } catch (error) { $('.histogram-error', histogramDialog).textContent = error.message; }
+  }
+  async function renderHistogram(options = histogramOptions, commit = false) {
     if (!histogramDialog?.open) return;
     const sensor = context.channels.find(s => s.id === histogramSensor);
     if (!sensor || context.recording) { histogramDialog.close(); return; }
     const errorMessage = $('.histogram-error', histogramDialog);
     try {
       const samples = visible(sensor), bins = histogram(samples, options || {});
+      const included = samples.filter(p => p.value >= bins.min && p.value <= bins.max), stats = statistics(included);
+      if (!histogramState || histogramState.sensor.id !== sensor.id || histogramState.bins.min !== bins.min || histogramState.bins.max !== bins.max || histogramState.bins.counts.length !== bins.counts.length || included.length !== histogramState.included.length || included.some((p, i) => p !== histogramState.included[i])) {
+        histogramVersion++; clearGaussian();
+      }
+      if (commit) histogramDirty = false;
+      histogramState = {sensor, samples, bins, included};
       histogramOptions = {min: bins.min, max: bins.max, bins: bins.counts.length};
       if (!options) {
         for (const [key, value] of Object.entries(histogramOptions)) $(`[name="${key}"]`, histogramDialog).value = String(value);
       }
-      const included = bins.counts.reduce((sum, count) => sum + count, 0);
       errorMessage.textContent = '';
+      $('.gaussian-fit', histogramDialog).disabled = histogramDirty || included.length === 0;
       $('h2', histogramDialog).textContent = `${sensor.name} histogram`;
-      $('.histogram-note', histogramDialog).textContent = `${label(sensor)} · ${samples.length} samples · ${included} in histogram · ${samples.length - included} outside value range · ${bins.counts.length} equal-width bins · ${rangeText()}`;
-      await Plotly.react($('.histogram-plot', histogramDialog), [{type: 'bar', x: bins.centers, y: bins.counts, width: bins.width,
-        marker: {color: sensor.color}, customdata: bins.centers.map(x => [x - bins.width / 2, x + bins.width / 2]),
-        hovertemplate: 'Range: %{customdata[0]:.5g}–%{customdata[1]:.5g}<br>Count: %{y}<extra></extra>'}], {
-        margin: {t: 20, b: 60, l: 60, r: 20}, xaxis: {title: {text: sensor.unit || 'Value'}, range: [bins.min, bins.max]}, yaxis: {title: {text: 'Count'}, rangemode: 'tozero', dtick: included < 10 ? 1 : undefined},
-        annotations: included ? [] : [{text: samples.length ? 'No samples in this value range' : 'No samples in the visible interval', showarrow: false, xref: 'paper', yref: 'paper', x: .5, y: .5}],
-      }, {responsive: true, displaylogo: false});
+      $('.histogram-note', histogramDialog).textContent = `${label(sensor)} · ${samples.length} samples · ${included.length} in histogram · ${samples.length - included.length} outside value range · ${bins.counts.length} equal-width bins · ${rangeText()}`;
+      $('.histogram-summary', histogramDialog).textContent = `Mean = ${number(stats.mean)} ${sensor.unit} · RMS = ${number(stats.rms)} ${sensor.unit} · Based on the ${included.length} values inside this histogram’s range.`;
+      await drawHistogram();
     } catch (error) { errorMessage.textContent = error.message; }
   }
   function rangeText() {
@@ -101,6 +131,7 @@ export function attachAnalysis(graph, getContext, changeScope) {
     const key = JSON.stringify([context.revision, context.generation, context.recording, context.run, graph.scope, context.range, context.channels.map(s => [s.id, s.name, s.device, s.unit])]);
     if (signature === key) return;
     signature = key;
+    xy.update();
     if (fitInput) {
       const sensor = context.channels.find(s => s.id === fitInput.sensorId);
       const samples = sensor ? visible(sensor) : [];
@@ -133,7 +164,14 @@ export function attachAnalysis(graph, getContext, changeScope) {
     $(`[data-content="${button.dataset.panel}"]`, root).hidden = !open;
     if (open && button.dataset.panel === 'table') renderTable();
     if (open && button.dataset.panel === 'stats') renderStats();
+    if (open && button.dataset.panel === 'xy') { xy.update(); xy.resize(); }
     if (open && button.dataset.panel === 'fit' && fitShown) Plotly.Plots.resize($('.fit-preview', root)).catch(() => {});
+  });
+  $('.compare-columns', root).addEventListener('click', () => {
+    const toggle = $('[data-panel="xy"]', root);
+    if (toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
+    $('[data-content="xy"]', root).scrollIntoView({block: 'start'});
+    $('.xy-x', root).focus({preventScroll: true});
   });
   $('.table-visible', root).addEventListener('change', () => { page = 0; renderTable(); });
   $('.table-prev', root).addEventListener('click', () => { page--; renderPage(); });
@@ -142,11 +180,11 @@ export function attachAnalysis(graph, getContext, changeScope) {
     const button = event.target.closest('[data-sensor]');
     if (!button) return;
     histogramSensor = button.dataset.sensor;
-    histogramOptions = null;
+    histogramOptions = null; histogramState = null; histogramDirty = false; histogramVersion++;
     if (!histogramDialog) {
       histogramDialog = document.createElement('dialog'); histogramDialog.className = 'histogram-dialog';
       histogramDialog.setAttribute('aria-labelledby', `histogram-title-${graph.id}`);
-      histogramDialog.innerHTML = `<h2 id="histogram-title-${graph.id}"></h2><p class="histogram-note small muted"></p><form class="histogram-controls" novalidate><label>Minimum value<input name="min" type="text" inputmode="decimal" required></label><label>Maximum value<input name="max" type="text" inputmode="decimal" required></label><label>Number of bins<input name="bins" type="text" inputmode="numeric" required></label><button class="button primary" type="submit">Redraw</button></form><p class="small muted">Range limits use the sensor’s units and include both endpoints. Values outside the range are excluded. Choose 1–${MAX_HISTOGRAM_BINS} bins.</p><p class="histogram-error small" role="alert"></p><div class="histogram-plot"></div><div class="dialog-actions"><button class="button histogram-close">Close histogram</button></div>`;
+      histogramDialog.innerHTML = `<h2 id="histogram-title-${graph.id}"></h2><p class="histogram-note small muted"></p><p class="histogram-summary small"></p><form class="histogram-controls" novalidate><label>Minimum value<input name="min" type="text" inputmode="decimal" required></label><label>Maximum value<input name="max" type="text" inputmode="decimal" required></label><label>Number of bins<input name="bins" type="text" inputmode="numeric" required></label><button class="button primary" type="submit">Redraw</button></form><p class="small muted">Range limits use the sensor’s units and include both endpoints. Values outside the range are excluded. Choose 1–${MAX_HISTOGRAM_BINS} bins.</p><p class="histogram-error small" role="alert"></p><div class="histogram-plot"></div><button class="button gaussian-fit" type="button">Fit Gaussian</button><p class="gaussian-message small" role="status"></p><div class="gaussian-results" hidden></div><div class="dialog-actions"><button class="button histogram-close">Close histogram</button></div>`;
       document.body.append(histogramDialog);
       $('.histogram-close', histogramDialog).addEventListener('click', () => histogramDialog.close());
       $('.histogram-controls', histogramDialog).addEventListener('submit', event => {
@@ -155,9 +193,36 @@ export function attachAnalysis(graph, getContext, changeScope) {
           const value = $(`[name="${key}"]`, histogramDialog).value.trim();
           return [key, value ? Number(value) : NaN];
         }));
-        renderHistogram(options);
+        renderHistogram(options, true);
       });
-      histogramDialog.addEventListener('close', () => Plotly.purge($('.histogram-plot', histogramDialog)));
+      $('.histogram-controls', histogramDialog).addEventListener('input', () => {
+        histogramDirty = true; histogramVersion++;
+        $('.gaussian-fit', histogramDialog).disabled = true;
+        clearGaussian('Histogram settings changed. Redraw before fitting.');
+        drawHistogram();
+      });
+      $('.gaussian-fit', histogramDialog).addEventListener('click', async () => {
+        if (!histogramState || histogramDirty) return;
+        const fitVersion = histogramVersion;
+        const button = $('.gaussian-fit', histogramDialog), message = $('.gaussian-message', histogramDialog);
+        button.disabled = true; clearGaussian('Fitting Gaussian…');
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        if (fitVersion !== histogramVersion || !histogramDialog.open) return;
+        try {
+          gaussian = fitGaussian(histogramState.included, histogramState.bins);
+          const result = $('.gaussian-results', histogramDialog); result.hidden = false;
+          result.innerHTML = table(['Parameter', 'Value', 'Uncertainty (1σ)', 'Units'], [
+            cells(['μ (mean)', number(gaussian.mu), number(gaussian.muError), histogramState.sensor.unit]),
+            cells(['σ (width)', number(gaussian.sigma), number(gaussian.sigmaError), histogramState.sensor.unit]),
+            cells(['N (in range)', number(gaussian.normalization), number(gaussian.normalizationError), 'counts']),
+          ]) + '<h3>Parameter correlation matrix</h3>' + table(['Parameter', 'μ', 'σ', 'N'], gaussian.correlation.map((row, i) => cells([['μ', 'σ', 'N'][i], ...row.map(number)]))) + `<p class="small muted">Initial μ = ${number(gaussian.initial.mu)}, σ = ${number(gaussian.initial.sigma)} (RMS), N = ${gaussian.initial.normalization}. RMS is √mean(y²), not the standard deviation.</p><p class="small muted">Fits integrated bin counts with a Poisson likelihood, normalized within this value range. Parameter errors are approximate. The goodness-of-fit check assumes independent samples and assesses only this range; it does not prove normality.</p>`;
+          message.classList.toggle('analysis-warning', gaussian.status !== 'compatible');
+          message.textContent = (gaussian.status === 'poor' ? 'Poor Gaussian fit: these counts are inconsistent with this model (p < 0.01). Treat the parameters as unreliable.' : gaussian.status === 'insufficient' ? 'Gaussian fitted, but there are too few adequately populated bins to assess goodness of fit. Try more data or different binning.' : 'No significant lack of fit detected at the 1% level.')
+            + ` Poisson deviance = ${number(gaussian.deviance)}. Approximate goodness-of-fit χ² = ${number(gaussian.chiSquared)}, degrees of freedom = ${Math.max(0, gaussian.dof)}, p = ${gaussian.pValue === null ? 'unavailable' : number(gaussian.pValue)}.`;
+        } catch (error) { clearGaussian(error.message); message.classList.add('analysis-warning'); }
+        finally { if (fitVersion === histogramVersion) { button.disabled = false; await drawHistogram(); } }
+      });
+      histogramDialog.addEventListener('close', () => { histogramVersion++; Plotly.purge($('.histogram-plot', histogramDialog)); });
     }
     histogramDialog.showModal(); renderHistogram();
   });
@@ -196,6 +261,7 @@ export function attachAnalysis(graph, getContext, changeScope) {
     } catch (error) { invalidateFit(); message.textContent = error.message; }
   });
   return {update, dispose() {
+    xy.dispose(); histogramVersion++;
     Plotly.purge($('.fit-preview', root));
     if (histogramDialog) { Plotly.purge($('.histogram-plot', histogramDialog)); histogramDialog.remove(); }
   }};

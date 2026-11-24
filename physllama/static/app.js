@@ -386,7 +386,7 @@ function addGraph(saved = {}) {
   });
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
-    for (const plot of node.querySelectorAll('.plot, .fit-preview')) {
+    for (const plot of node.querySelectorAll('.plot, .fit-preview, .xy-plot')) {
       if (plot._fullLayout && plot.getClientRects().length) Plotly.Plots.resize(plot).catch(() => {});
     }
   });
