@@ -226,7 +226,7 @@ function renderControls() {
     }
   }
   $('#elapsed').innerHTML = `${(state.elapsed || 0).toFixed(2)} <small>s</small>`;
-  $('#samples').textContent = (state.total_points || 0).toLocaleString();
+  $('#samples').textContent = (state.total_samples || 0).toLocaleString();
   $('#channels').textContent = channels;
   const run = state.run || 0;
   $('#run-number').innerHTML = run ? `${run} <small>${state.recording ? 'recording' : 'stopped'}</small>` : '–';

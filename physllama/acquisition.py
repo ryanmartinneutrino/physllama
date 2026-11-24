@@ -48,6 +48,7 @@ class Lab:
         self.selected = {}
         self.series = {}
         self.points = []
+        self.sample_times = set()  # Unique (run, timestamp) pairs, across channels.
         self.recording = False
         self.periods = {}  # Sampling interval in ms for each device.
         # Devices from a loaded experiment file that have not reconnected yet;
@@ -334,6 +335,7 @@ class Lab:
                     self.counts[series_id] += 1
                     self.points.append(dict(seq=len(self.points) + 1, series=series_id,
                         t=round(t, 6), value=value if math.isfinite(value) else None, run=self.run))
+                    self.sample_times.add((self.run, round(t, 6)))
                 if values:
                     self.last_seen[key] = time.monotonic()
             if time.monotonic() - self.last_seen[key] > max(5, self.periods[key] / 1000 * 3):
@@ -352,6 +354,7 @@ class Lab:
     def reset(self):
         self.require_idle()
         self.points.clear()
+        self.sample_times.clear()
         self.series.clear()
         self.epoch, self.run, self.error = None, 0, None
         self.generation = uuid.uuid4().hex
@@ -378,6 +381,7 @@ class Lab:
         self.experiment_name = loaded['experiment_name']
         self.series = {s['id']: s for s in loaded['series']}
         self.points = loaded['points']
+        self.sample_times = {(p['run'], p['t']) for p in self.points}
         self.run = max((p['run'] for p in self.points), default=0)
         # Time continues from the last saved sample; time while closed is not counted.
         last = max((p['t'] for p in self.points), default=None)
@@ -419,7 +423,8 @@ class Lab:
             supported_devices=self.registry.families(),
             run=self.run, generation=self.generation, error=self.error,
             saved_devices=[{k: v for k, v in d.items() if k not in ('selected',)} for d in self.saved_devices.values()],
-            total_points=len(self.points), elapsed=max((p['t'] for p in self.points[-200:]), default=0),
+            total_points=len(self.points), total_samples=len(self.sample_times),
+            elapsed=max((p['t'] for p in self.points[-200:]), default=0),
             cursor=after + len(points), points=points, series=copy.deepcopy(list(self.series.values())),
             devices=[dict(id=d.id, name=self.display_name(d), hardware_name=d.name,
                 nickname=self.names.get(d.id, ''), serial=getattr(d, 'serial', None),

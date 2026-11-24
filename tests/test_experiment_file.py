@@ -39,6 +39,7 @@ def test_save_and_load_restore_data_devices_and_settings(client):
     state = client.get('/api/state', params={'generation': ''}).json()
     assert state['experiment_name'] == 'Spring lab'
     assert state['total_points'] == stopped['total_points']
+    assert state['total_samples'] == stopped['total_samples']
     assert {s['id'] for s in state['series']} == {'demo-1/1', 'demo-1/2'}
     device = next(d for d in state['devices'] if d['id'] == 'demo-1')
     assert device['connected'] and device['selected'] == [1, 2] and device['period_ms'] == 20

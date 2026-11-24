@@ -5,15 +5,21 @@ export function samplesInRange(samples, range) {
   return samples.filter(p => Number.isFinite(p.t) && Number.isFinite(p.value) && p.t >= low && p.t <= high);
 }
 export function statistics(samples) {
-  if (!samples.length) return {n: 0, min: NaN, max: NaN, mean: NaN, rms: NaN};
+  if (!samples.length) return {n: 0, min: NaN, max: NaN, mean: NaN, stddev: NaN};
   let min = Infinity, max = -Infinity, mean = 0, scale = 0;
   for (const [i, p] of samples.entries()) {
     min = Math.min(min, p.value); max = Math.max(max, p.value);
     mean = mean * (i / (i + 1)) + p.value / (i + 1);
     scale = Math.max(scale, Math.abs(p.value));
   }
-  const squareMean = scale ? samples.reduce((s, p) => s + (p.value / scale) ** 2 / samples.length, 0) : 0;
-  return {n: samples.length, min, max, mean, rms: scale * Math.sqrt(squareMean)};
+  // Population spread (divide by N), centered before squaring. Scaling avoids
+  // overflow; subtract first when possible to preserve small spreads at offsets.
+  const variance = scale ? samples.reduce((sum, p) => {
+    const delta = p.value - mean;
+    const centered = Number.isFinite(delta) ? delta / scale : p.value / scale - mean / scale;
+    return sum + centered ** 2 / samples.length;
+  }, 0) : 0;
+  return {n: samples.length, min, max, mean, stddev: scale * Math.sqrt(variance)};
 }
 export const MAX_HISTOGRAM_BINS = 1000;
 export function histogram(samples, options = {}) {

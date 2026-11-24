@@ -35,6 +35,8 @@ def test_multi_device_collection_resume_export_and_reset(client):
     assert len(first['series']) == 8
     fetched = client.get('/api/state').json()
     assert len(fetched['points']) == first['total_points']
+    assert first['total_samples'] == len({(p['run'], p['t']) for p in fetched['points']})
+    assert first['total_samples'] < first['total_points']
     assert {p['series'] for p in fetched['points']} == {s['id'] for s in first['series']}
     points = [p for p in fetched['points'] if p['series'] == 'demo-1/1']
     assert points[1]['t'] - points[0]['t'] == pytest.approx(.01, abs=1e-6)
@@ -44,6 +46,9 @@ def test_multi_device_collection_resume_export_and_reset(client):
     time.sleep(.04)
     second = client.post('/api/stop').json()
     assert second['run'] == 2
+    all_points = client.get('/api/state').json()['points']
+    assert second['total_samples'] == len({(p['run'], p['t']) for p in all_points})
+    assert second['total_samples'] > first['total_samples']
     rows = list(csv.DictReader(io.StringIO(client.get('/api/export?series=demo-1/1').text)))
     columns = list(rows[0])
     assert columns[:3] == ['run', 'time_s', 'run_time_s']
@@ -56,6 +61,7 @@ def test_multi_device_collection_resume_export_and_reset(client):
     reset = client.post('/api/reset').json()
     assert reset['generation'] != fetched['generation']
     assert reset['total_points'] == 0
+    assert reset['total_samples'] == 0
     assert all(d['connected'] for d in reset['devices'])
     assert client.get('/api/export').status_code == 400
 

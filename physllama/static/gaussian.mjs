@@ -78,9 +78,8 @@ export function fitGaussian(samples, bins) {
   if (!(stats.max > stats.min) || bins.counts.filter(count => count > 0).length < 3) throw new Error('The values have too little spread across bins to determine a Gaussian width.');
   if (bins.counts.reduce((sum, v) => sum + v, 0) !== n) throw new Error('The histogram changed. Redraw it before fitting.');
   const span = bins.max - bins.min, origin = bins.min + span / 2;
-  const initial = {mu: stats.mean, sigma: stats.rms, normalization: n};
+  const initial = {mu: stats.mean, sigma: stats.stddev, normalization: n};
   const mu0 = (stats.mean - origin) / span;
-  const variance = included.reduce((sum, p) => sum + ((p.value - stats.mean) / span) ** 2 / n, 0);
   const minSigma = 1 / (20 * k), maxSigma = 20;
   function probabilities([mu, logSigma]) {
     const sigma = Math.exp(logSigma);
@@ -95,9 +94,9 @@ export function fitGaussian(samples, bins) {
     return probability ? bins.counts.reduce((sum, count, i) => sum + (count ? 2 * count * Math.log(count / n / probability[i]) : 0), 0) : Infinity;
   };
   const start = sigma => [mu0, Math.log(Math.min(maxSigma / 2, Math.max(minSigma * 2, sigma)))];
-  // Start with the requested RMS; a centered-spread restart avoids a flat initial
-  // likelihood when the mean is many orders larger than the Gaussian width.
-  const attempts = [minimize(objective, start(stats.rms / span)), minimize(objective, start(Math.sqrt(variance)))];
+  // Seed with the measured standard deviation; also try a wider starting width
+  // for cropped histograms, whose observed spread underestimates the full width.
+  const attempts = [1, 2].map(factor => minimize(objective, start(factor * stats.stddev / span)));
   const optimum = attempts.filter(a => a.converged && Number.isFinite(a.f)).sort((a, b) => a.f - b.f)[0];
   if (!optimum) throw new Error('The Gaussian fit did not converge. Try a different range or bin count; the data may not follow a Gaussian.');
   const [muScaled, logSigma] = optimum.p, sigmaScaled = Math.exp(logSigma);
@@ -131,6 +130,18 @@ export function fitGaussian(samples, bins) {
   const rho = Math.max(-1, Math.min(1, -ab / Math.sqrt(aa) / Math.sqrt(bb)));
   const correlation = [[1, rho, 0], [rho, 1, 0], [0, 0, 1]];
   return {mu, sigma, normalization: n, muError, sigmaError, normalizationError: Math.sqrt(n), correlation, initial,
-    expected, deviance: Math.max(0, optimum.f), chiSquared, dof, pValue,
+    expected, countChiSquared: poissonCountChiSquared(bins.counts, expected),
+    deviance: Math.max(0, optimum.f), chiSquared, dof, pValue,
     status: pValue === null ? 'insufficient' : pValue < .01 ? 'poor' : 'compatible'};
+}
+
+// ROOT TH1's default observed-error chi-square: error = sqrt(count).
+// Zero-error bins are excluded here, but remain included in the likelihood fit.
+// https://root.cern.ch/doc/v636/classTH1.html (Chi-square Fits)
+export function poissonCountChiSquared(counts, expected, parameters = 3) {
+  let value = 0, usedBins = 0;
+  counts.forEach((count, i) => {
+    if (count > 0) { value += (count - expected[i]) ** 2 / count; usedBins++; }
+  });
+  return {value, dof: usedBins - parameters, usedBins, excludedBins: counts.length - usedBins};
 }

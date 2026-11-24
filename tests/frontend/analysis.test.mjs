@@ -9,9 +9,17 @@ test('range selection includes endpoints, excludes nulls, and handles reversed a
   assert.deepEqual(samplesInRange(data, [4, 1]), [data[2], data[4]]);
   const stats = statistics(samplesInRange(data));
   assert.equal(stats.n, 3); assert.equal(stats.min, -2); assert.equal(stats.max, 4);
-  near(stats.mean, 4 / 3); near(stats.rms, Math.sqrt(8));
+  near(stats.mean, 4 / 3); near(stats.stddev, Math.sqrt(56) / 3);
   assert.equal(statistics([]).n, 0);
-  near(statistics(samples([1e200, -1e200])).rms, 1e200, 1e185);
+  near(statistics(samples([1e200, -1e200])).stddev, 1e200, 1e185);
+});
+
+test('standard deviation measures centered population spread, not raw magnitude', () => {
+  near(statistics(samples([99, 101])).stddev, 1);
+  near(statistics(samples([1e12 - 1, 1e12 + 1])).stddev, 1);
+  near(statistics(samples([5, 5, 5])).stddev, 0);
+  near(statistics(samples([5])).stddev, 0);
+  assert.ok(Number.isNaN(statistics([]).stddev));
 });
 
 test('histograms count every sample, including the upper boundary and constant values', () => {

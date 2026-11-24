@@ -14,10 +14,10 @@ async function fixture(page, count = 5) {
     recording: false, run: 2, generation: 'analysis-test', elapsed: 14, total_points: points.length, cursor: points.length, error: null};
   await page.route('**/api/state?*', route => {
     const after = Number(new URL(route.request().url()).searchParams.get('after'));
-    return route.fulfill({json: {...snapshot, points: snapshot.total_points ? points.filter(p => p.seq > after) : []}});
+    return route.fulfill({json: {...snapshot, total_samples: snapshot.total_points ? new Set(points.map(p => `${p.run}:${p.t}`)).size : 0, points: snapshot.total_points ? points.filter(p => p.seq > after) : []}});
   });
   await page.goto('/');
-  await expect(page.locator('#samples')).toHaveText(points.length.toLocaleString());
+  await expect(page.locator('#samples')).toHaveText((points.length / 2).toLocaleString());
   await page.locator('.graph-sensors summary').click();
   await page.locator('[data-series="demo-1/1"]').check();
   await page.locator('[data-series="demo-1/2"]').check();
@@ -44,6 +44,7 @@ test('analysis follows run scope and zoom, with raw table, histogram and weighte
   await expect(stats.locator('td').nth(2)).toHaveText('23');
   await expect(stats.locator('td').nth(3)).toHaveText('27');
   await expect(stats.locator('td').nth(4)).toHaveText('25');
+  await expect(stats.locator('td').nth(5)).toHaveText(Number(Math.sqrt(8 / 3).toPrecision(7)).toString());
   await expect(page.locator('.data-table tbody tr')).toHaveCount(5);
   await page.getByLabel('Visible time range only').check();
   await expect(page.locator('.data-table tbody tr')).toHaveCount(3);
@@ -231,7 +232,7 @@ test('collapsing the device sidebar resizes graphs and fits while preserving dat
   await expect.poll(() => preview.evaluate(el => el._fullLayout.width)).toBeGreaterThan(previewWidth + 250);
   expect(await plot.evaluate(el => el._fullLayout.xaxis.range)).toEqual([10, 14]);
   await expect(page.locator('.fit-message')).toContainText('5 samples');
-  await expect(page.locator('#samples')).toHaveText('20');
+  await expect(page.locator('#samples')).toHaveText('10');
   await page.screenshot({path: 'test-results/sidebar-collapsed.png', fullPage: true});
   await page.reload();
   await expect(page.locator('#device-sidebar')).toBeHidden();
@@ -277,6 +278,7 @@ test('numbered run selection drives plots and analysis and survives newer runs a
   await scope.selectOption({label: 'Run 2'});
   await expect(page.locator('.fit-results')).toBeHidden();
   await expect(stats.locator('td').nth(4)).toHaveText('25');
+  await expect(stats.locator('td').nth(5)).toHaveText(Number(Math.sqrt(8).toPrecision(7)).toString());
   await expect(page.locator('.data-table tbody tr td:first-child')).toHaveText(Array(5).fill('2'));
   await scope.selectOption({label: 'Run 1'});
   snapshot.run = 3;
@@ -296,7 +298,7 @@ test('numbered run selection drives plots and analysis and survives newer runs a
   expect(errors).toEqual([]);
 });
 
-test('histogram shows raw moments, fits a Gaussian and handles invalid fits gracefully', async ({page}) => {
+test('histogram shows mean and standard deviation, fits a Gaussian and handles invalid fits gracefully', async ({page}) => {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   const {points} = await fixture(page, 500);
   let seed = 1234;
@@ -307,11 +309,14 @@ test('histogram shows raw moments, fits a Gaussian and handles invalid fits grac
   await page.locator('.stats-table tbody tr').first().getByRole('button', {name: /Histogram/}).click();
   const modal = page.getByRole('dialog'), histogram = modal.locator('.histogram-plot');
   await expect(modal.locator('.histogram-summary')).toContainText('Mean =');
-  await expect(modal.locator('.histogram-summary')).toContainText('RMS =');
+  await expect(modal.locator('.histogram-summary')).toContainText('Standard deviation =');
   await expect(modal.locator('.histogram-summary')).toContainText('1000 values');
   await modal.getByRole('button', {name: 'Fit Gaussian', exact: true}).click();
   await expect(modal.locator('.gaussian-results')).toBeVisible();
   await expect(modal.locator('.gaussian-message')).toContainText('No significant lack of fit');
+  await expect(modal.locator('.gaussian-message')).toContainText('Count χ² (√n errors)');
+  await expect(modal.locator('.gaussian-message')).toContainText('Pooled Pearson χ²');
+  expect(await histogram.evaluate(el => el.data[0].error_y.array.every((error, i) => error === Math.sqrt(el.data[0].y[i])))).toBe(true);
   const parameters = modal.locator('.gaussian-results table').first().locator('tbody tr');
   expect(Number(await parameters.nth(0).locator('td').nth(1).innerText())).toBeCloseTo(5, 0);
   expect(Number(await parameters.nth(1).locator('td').nth(1).innerText())).toBeCloseTo(2, 0);
@@ -324,9 +329,9 @@ test('histogram shows raw moments, fits a Gaussian and handles invalid fits grac
   await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
   const included = points.filter(p => p.series === 'demo-1/1' && p.value >= 4 && p.value <= 6);
   const mean = included.reduce((sum, p) => sum + p.value, 0) / included.length;
-  const rms = Math.sqrt(included.reduce((sum, p) => sum + p.value * p.value, 0) / included.length);
+  const stddev = Math.sqrt(included.reduce((sum, p) => sum + (p.value - mean) ** 2, 0) / included.length);
   await expect(modal.locator('.histogram-summary')).toContainText(`Mean = ${Number(mean.toPrecision(7))}`);
-  await expect(modal.locator('.histogram-summary')).toContainText(`RMS = ${Number(rms.toPrecision(7))}`);
+  await expect(modal.locator('.histogram-summary')).toContainText(`Standard deviation = ${Number(stddev.toPrecision(7))}`);
   await modal.getByLabel('Number of bins').fill('3');
   await modal.getByRole('button', {name: 'Redraw', exact: true}).click();
   await modal.getByRole('button', {name: 'Fit Gaussian', exact: true}).click();
