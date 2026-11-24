@@ -151,8 +151,13 @@ function applyState(next, withPoints) {
     $('#experiment-title').value = next.experiment_name;
   }
   if (next.generation !== generation) {
+    const replacingData = Boolean(generation);
     generation = next.generation; cursor = 0; points.clear(); runStats.clear(); runStarts.clear(); revision++;
-    for (const graph of graphs) graph.fit++;
+    for (const graph of graphs) {
+      graph.fit++;
+      if (replacingData && graph.scope.startsWith('run:')) graph.scope = 'all';
+    }
+    if (replacingData) saveLayout();
   }
   if (withPoints) {
     for (const point of next.points) {
@@ -366,12 +371,12 @@ $('[data-close="rename-dialog"]').addEventListener('click', () => $('#rename-dia
 function addGraph(saved = {}) {
   const customTitle = saved.customTitle ?? Boolean(saved.title && !/^Graph \d+$/.test(saved.title));
   const graph = {id: ++graphCounter, title: customTitle ? saved.title : `Graph ${graphs.length + 1}`, customTitle, selected: saved.selected || [],
-    follow: saved.follow ?? true, scope: saved.scope === 'current' ? 'current' : 'all', fit: 0, dirty: true, lastRevision: -1, drawing: false};
+    follow: saved.follow ?? true, scope: normalizeGraphScope(saved.scope), fit: 0, dirty: true, lastRevision: -1, drawing: false};
   const node = document.createElement('article'); node.className = 'graph';
   node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit the selected runs in view">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot-area"><div class="plot"></div><div class="hover-marks" aria-hidden="true"></div></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
   graph.analysis = attachAnalysis(graph, () => ({
-    revision, generation, recording: state.recording, run: state.run,
+    revision, generation, recording: state.recording, run: state.run, runs: availableRuns(),
     range: $('.plot', node)._fullLayout?.xaxis.range?.slice(),
     channels: availableChannels().filter(s => graph.selected.includes(s.id)).map(s => ({
       ...s, color: colorFor(s.id), samples: graphSamples(graph, s.id),
@@ -456,9 +461,21 @@ function updateSelectionCount(graph) {
   const count = availableChannels().filter(s => graph.selected.includes(s.id)).length;
   $('.selection-count', graph.node).textContent = `${count} selected`;
 }
+function normalizeGraphScope(scope) {
+  if (scope === 'current') return scope;
+  if (typeof scope === 'string' && /^run:[1-9]\d*$/.test(scope) && Number.isSafeInteger(Number(scope.slice(4)))) return scope;
+  return 'all';
+}
+function availableRuns() {
+  // Include runs from every sensor, plus a current run that may have no samples yet.
+  return [...new Set([...runStarts.keys(), ...(state.run > 0 ? [state.run] : [])])].sort((a, b) => a - b);
+}
+function graphRun(graph) {
+  return graph.scope === 'current' ? state.run : graph.scope.startsWith('run:') ? Number(graph.scope.slice(4)) : null;
+}
 function graphSamples(graph, id) {
-  const data = points.get(id) || [];
-  return graph.scope === 'current' ? data.filter(p => p.run === state.run) : data;
+  const data = points.get(id) || [], run = graphRun(graph);
+  return graph.scope === 'all' ? data : data.filter(p => p.run === run);
 }
 // Min/max bucket reduction keeps extrema visible; CSV uses full-resolution data.
 function displayPoints(data) {
@@ -512,22 +529,23 @@ async function drawGraph(graph) {
   const hasData = traces.some(t => t.x.length);
   if (hasData && graph.hadData === false) graph.fit++;
   graph.hadData = hasData;
+  const fitRevision = graph.fit, resetView = graph.renderedFit !== fitRevision;
   const axis = {gridcolor: '#eef0f2', zerolinecolor: '#dbe1e6', tickfont: {size: 10, color: '#909aa2'},
     title: {font: {size: 11, color: '#808e9a'}, standoff: 10}, showline: false, automargin: true};
   const layout = {autosize: true, paper_bgcolor: 'white', plot_bgcolor: 'white', font: {family: 'Inter, Segoe UI, sans-serif', color: '#455765'},
     margin: {l: 60, r: Math.max(25, (units.length - 1) * 65), t: 28, b: 48},
     showlegend: false, hovermode: 'x unified', dragmode: 'zoom', uirevision: `${generation}-${graph.fit}`,
-    datarevision: revision, hoverlabel: {bgcolor: '#fff', bordercolor: '#dae2e9', font: {size: 11}},
-    xaxis: {...axis, title: {...axis.title, text: 'Time since first Start (s)'}, autorange: graph.follow ? true : undefined},
-    yaxis: {...axis, title: {...axis.title, text: units[0] || 'Value'}},
+    datarevision: `${revision}-${graph.scope}`, hoverlabel: {bgcolor: '#fff', bordercolor: '#dae2e9', font: {size: 11}},
+    xaxis: {...axis, title: {...axis.title, text: 'Time since first Start (s)'}, autorange: graph.follow || resetView ? true : undefined},
+    yaxis: {...axis, autorange: resetView ? true : undefined, title: {...axis.title, text: units[0] || 'Value'}},
   };
   units.slice(1).forEach((unit, i) => {
-    layout[`yaxis${i + 2}`] = {...axis, title: {...axis.title, text: unit}, overlaying: 'y', side: 'right',
+    layout[`yaxis${i + 2}`] = {...axis, autorange: resetView ? true : undefined, title: {...axis.title, text: unit}, overlaying: 'y', side: 'right',
       anchor: 'free', position: 1, shift: i * 60, showgrid: false};
   });
   // Mark where each run begins once there is more than one.
   if (hasData && runStarts.size > 1) {
-    const starts = [...runStarts].filter(([run]) => graph.scope !== 'current' || run === state.run).sort((a, b) => a[0] - b[0]);
+    const starts = [...runStarts].filter(([run]) => graph.scope === 'all' || run === graphRun(graph)).sort((a, b) => a[0] - b[0]);
     layout.shapes = starts.map(([, t]) => ({type: 'line', xref: 'x', yref: 'paper', x0: t, x1: t, y0: 0, y1: 1,
       line: {color: '#b9c4cd', width: 1, dash: 'dot'}, layer: 'below'}));
     layout.annotations = starts.map(([run, t]) => ({x: t, xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'left',
@@ -537,13 +555,14 @@ async function drawGraph(graph) {
     layout.xaxis.range = [0, 10]; layout.xaxis.autorange = false;
     layout.yaxis.range = [-5, 5];
     layout.annotations = [{xref: 'paper', yref: 'paper', x: .5, y: .56, showarrow: false,
-      text: `<b>${channels.length ? 'No data yet' : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#949ea7">${channels.length ? 'Start collection to see your measurements here.' : 'Open the Sensors dropdown to start plotting.'}</span>`,
+      text: `<b>${channels.length ? (graph.scope !== 'all' && state.run ? 'No data for this run' : 'No data yet') : 'Choose sensors for this graph'}</b><br><span style="font-size:11px;color:#949ea7">${channels.length ? (graph.scope !== 'all' && state.run ? 'Choose another run or sensor to see measurements.' : 'Start collection to see your measurements here.') : 'Open the Sensors dropdown to start plotting.'}</span>`,
       font: {size: 15, color: '#70818f'}, bgcolor: 'rgba(255,255,255,.94)', borderpad: 15}];
   }
   try {
     await Plotly.react(plot, traces, layout, {responsive: true, displaylogo: false, scrollZoom: true,
       modeBarButtonsToRemove: ['select2d', 'lasso2d'], toImageButtonOptions: {filename: graph.title || 'physllama-graph'}});
     if (!graphs.includes(graph)) return;
+    graph.renderedFit = fitRevision;
     if (!graph.listeners) {
       plot.on('plotly_relayout', event => {
         if ('xaxis.range[0]' in event || 'xaxis.range' in event) {
@@ -650,7 +669,7 @@ function replaceGraphs(saved) {
   const valid = (Array.isArray(saved) ? saved : []).filter(g => g && typeof g === 'object').slice(0, 12).map(g => ({
     title: typeof g.title === 'string' ? g.title.slice(0, 50) : '', customTitle: g.customTitle === true,
     selected: Array.isArray(g.selected) ? [...new Set(g.selected.filter(id => typeof id === 'string'))] : [],
-    follow: g.follow !== false, scope: g.scope === 'current' ? 'current' : 'all'}));
+    follow: g.follow !== false, scope: normalizeGraphScope(g.scope)}));
   (valid.length ? valid : [{}]).forEach(addGraph);
   renumberGraphs(); saveLayout(); renderControls(); renderDevices();
 }

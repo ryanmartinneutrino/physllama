@@ -16,7 +16,7 @@ export function attachAnalysis(graph, getContext, changeScope) {
     <div class="analysis-panel" id="analysis-${graph.id}-fit" data-content="fit" hidden><h3>Fit visible data</h3><form class="fit-form"><div class="fit-controls"><label>Sensor<select class="fit-sensor" aria-label="Fit sensor"></select></label><label>Function<select class="fit-model" aria-label="Fit function">${Object.entries(fitModels).map(([id, m]) => `<option value="${id}">${esc(m.label)}</option>`).join('')}</select></label><label>Y uncertainty (1σ)<input class="fit-sigma" aria-label="Y uncertainty" type="text" inputmode="decimal" placeholder="e.g. 0.1" required autocomplete="off"></label><button class="button primary fit-submit" type="submit">Fit visible data</button></div><p class="fit-unit small muted"></p><p class="small muted">One positive standard deviation for every point. Assumes independent y errors and exact times. Linear and quadratic fits need no initial guesses.</p></form><p class="fit-message small" role="status">Choose a sensor and enter its measurement uncertainty.</p><div class="fit-results" hidden></div><div class="fit-preview" hidden></div></div>`;
   graph.node.append(root);
   const scope = $('.data-scope', root); scope.value = graph.scope;
-  let context, signature = '', sensorSignature = '', page = 0, rows = [], fitShown = false;
+  let context, signature = '', sensorSignature = '', runSignature = '', page = 0, rows = [], fitShown = false;
   let histogramDialog = null, histogramSensor = null, histogramOptions = null, fitInput = null;
   const dataKey = () => JSON.stringify([context.generation, context.recording, context.run, graph.scope, context.channels.map(s => [s.id, s.name, s.device, s.unit])]);
   const visible = s => samplesInRange(s.samples, context.range);
@@ -87,6 +87,17 @@ export function attachAnalysis(graph, getContext, changeScope) {
   function update() {
     context = getContext();
     scope.disabled = context.recording;
+    const runs = [...context.runs];
+    // A saved selection may precede its samples during reload/import. Keep it visible.
+    if (graph.scope.startsWith('run:') && !runs.includes(Number(graph.scope.slice(4)))) runs.push(Number(graph.scope.slice(4)));
+    runs.sort((a, b) => a - b);
+    const runKey = JSON.stringify(runs);
+    if (runKey !== runSignature) {
+      runSignature = runKey;
+      scope.innerHTML = '<option value="all">All runs</option><option value="current">Current run</option>'
+        + runs.map(run => `<option value="run:${run}">Run ${run}</option>`).join('');
+    }
+    scope.value = graph.scope;
     const key = JSON.stringify([context.revision, context.generation, context.recording, context.run, graph.scope, context.range, context.channels.map(s => [s.id, s.name, s.device, s.unit])]);
     if (signature === key) return;
     signature = key;
@@ -96,7 +107,7 @@ export function attachAnalysis(graph, getContext, changeScope) {
       // Autorange padding can change on resize without changing the fitted data.
       if (fitInput.key !== dataKey() || samples.length !== fitInput.samples.length || samples.some((p, i) => p !== fitInput.samples[i])) invalidateFit();
     }
-    $('.analysis-status', root).textContent = context.recording ? 'Stop collection to analyze data.' : `${graph.scope === 'current' ? `Run ${context.run || '—'}` : 'All runs'} · Analysis interval: ${rangeText()}`;
+    $('.analysis-status', root).textContent = context.recording ? 'Stop collection to analyze data.' : `${graph.scope === 'all' ? 'All runs' : `Run ${graph.scope === 'current' ? context.run || '—' : graph.scope.slice(4)}`} · Analysis interval: ${rangeText()}`;
     for (const button of root.querySelectorAll('.analysis-toggle')) {
       button.disabled = context.recording;
       if (context.recording) button.setAttribute('aria-expanded', 'false');

@@ -562,6 +562,7 @@ test('an experiment saves to a file and reopens with its graphs, settings and da
   await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
   await expect(page.locator('#status')).toHaveText('Collection stopped');
   const samples = await page.locator('#samples').innerText();
+  await page.getByLabel('Graph data scope').selectOption({label: 'Run 1'});
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', {name: 'Save experiment'}).click();
   const download = await downloadPromise;
@@ -583,6 +584,7 @@ test('an experiment saves to a file and reopens with its graphs, settings and da
   await expect(page.locator(`[data-period-device="${id}"]`)).toHaveValue('25');
   await expect(page.locator('.graph').first().locator('.selection-count')).toHaveText('1 selected');
   await expect.poll(() => page.locator('.plot').first().evaluate(el => el.data?.[0]?.x.length)).toBeGreaterThan(0);
+  await expect(page.getByLabel('Graph data scope')).toHaveValue('run:1');
   await expect(page.locator('#run-number')).toContainText('1');
   await expect(page.locator('#run-note')).toContainText('Start begins run 2');
   await expect(page.locator('#start')).toHaveAttribute('title', 'Start run 2');
@@ -592,6 +594,8 @@ test('an experiment saves to a file and reopens with its graphs, settings and da
   await expect(page.locator('#run-number')).toContainText('2 recording');
   await expect(page.locator('#run-note')).toContainText('Recording run 2');
   await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
+  await expect(page.getByLabel('Graph data scope')).toHaveValue('run:1');
+  await page.getByLabel('Graph data scope').selectOption('all');
   await expect.poll(() => page.locator('.plot').first().evaluate(el => (el.layout.annotations || []).map(a => a.text))).toEqual(['Run 1', 'Run 2']);
   await expect.poll(() => page.locator('.plot').first().evaluate(el => el.layout.xaxis.title.text)).toBe('Time since first Start (s)');
   // Opening over existing data asks first; invalid files are explained.
