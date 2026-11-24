@@ -17,6 +17,7 @@ from .devices.demo import DemoDevice
 from .hardware import default_registry
 from .names import validate_name
 from .csv_export import wide_csv
+from . import experiment_file
 
 MAX_POINTS = 250_000
 DEFAULT_PERIOD_MS = 50
@@ -49,6 +50,9 @@ class Lab:
         self.points = []
         self.recording = False
         self.periods = {}  # Sampling interval in ms for each device.
+        # Devices from a loaded experiment file that have not reconnected yet;
+        # their saved channels and interval apply when they connect.
+        self.saved_devices = {}
         self.run = 0
         self.generation = uuid.uuid4().hex
         self.error = None
@@ -153,6 +157,12 @@ class Lab:
                 except Exception:
                     pass
                 raise
+        saved = self.saved_devices.pop(device_id, None)
+        if saved is not None:
+            numbers = {s['number'] for s in device.sensors if s['supported']}
+            self.selected[device_id] = [n for n in saved['selected'] if n in numbers]
+            if saved['period_ms'] is not None:
+                self.periods[device_id] = saved['period_ms']
         if device_id not in self.selected:
             self.selected[device_id] = [s['number'] for s in device.sensors if s['supported']][:1]
         if device_id not in self.periods:
@@ -241,7 +251,10 @@ class Lab:
                 if any(other in sensor['excluded_channels'] for other in numbers if other != n):
                     raise ValueError(f"{sensor['name']} conflicts with another selected channel.")
                 if not sensor['minimum_ms'] <= period <= sensor['maximum_ms']:
-                    raise ValueError(f"{self.display_name(device)}: {sensor['name']} requires {sensor['minimum_ms']:g}–{sensor['maximum_ms']:g} ms.")
+                    raise ValueError(f"{self.display_name(device)}: {sensor['name']} can only be sampled every "
+                                     f"{sensor['minimum_ms']:g}–{sensor['maximum_ms']:g} ms (max {1000 / sensor['minimum_ms']:g} Hz), "
+                                     f"not every {period:g} ms. All channels on one device share its sampling interval: "
+                                     f"choose a different interval or stop recording {sensor['name']}.")
                 step = sensor['step_ms']
                 if step > 0 and not math.isclose(period / step, round(period / step), abs_tol=1e-5):
                     raise ValueError(f"{self.display_name(device)}: {sensor['name']} requires an interval in multiples of {step:g} ms.")
@@ -344,6 +357,49 @@ class Lab:
         self.generation = uuid.uuid4().hex
         return self.snapshot()
 
+    def save_experiment(self):
+        self.require_idle()
+        return experiment_file.build(self)
+
+    def load_experiment(self, data):
+        """Replace the experiment with a saved one. Connected devices stay connected."""
+        self.require_idle()
+        loaded = experiment_file.parse(data)
+        for saved in loaded['devices']:
+            device = self.devices.get(saved['id'])
+            if device is not None and device.connected and device.demo != saved['demo']:
+                raise ValueError('Disconnect demo devices before opening real measurements, and vice versa.')
+        nicknames = {d['id']: d['nickname'] for d in loaded['devices'] if d['nickname']}
+        if nicknames:
+            names = {**self.names, **nicknames}
+            if self.name_store is not None:
+                self.name_store.save(names)
+            self.names = names
+        self.experiment_name = loaded['experiment_name']
+        self.series = {s['id']: s for s in loaded['series']}
+        self.points = loaded['points']
+        self.run = max((p['run'] for p in self.points), default=0)
+        # Time continues from the last saved sample; time while closed is not counted.
+        last = max((p['t'] for p in self.points), default=None)
+        self.epoch = None if last is None else time.monotonic() - last
+        self.generation, self.error = uuid.uuid4().hex, None
+        self.saved_devices = {}
+        for saved in loaded['devices']:
+            device_id = saved['id']
+            device = self.devices.get(device_id)
+            if device is None and saved['demo'] and device_id.startswith('demo-') and device_id[5:].isdigit():
+                # Simulated devices need no hardware, so recreate them.
+                device = self.devices[device_id] = DemoDevice(int(device_id[5:]))
+            if device is not None and device.connected:
+                self.selected[device_id] = list(saved['selected'])
+                if saved['period_ms'] is not None:
+                    self.periods[device_id] = saved['period_ms']
+                continue
+            self.saved_devices[device_id] = saved
+            if device is not None:
+                self.connect(device_id)
+        return self.snapshot()
+
     def battery(self, device_id):
         self.require_idle()
         device = self.devices.get(device_id)
@@ -362,6 +418,7 @@ class Lab:
             experiment_name=self.experiment_name,
             supported_devices=self.registry.families(),
             run=self.run, generation=self.generation, error=self.error,
+            saved_devices=[{k: v for k, v in d.items() if k not in ('selected',)} for d in self.saved_devices.values()],
             total_points=len(self.points), elapsed=max((p['t'] for p in self.points[-200:]), default=0),
             cursor=after + len(points), points=points, series=copy.deepcopy(list(self.series.values())),
             devices=[dict(id=d.id, name=self.display_name(d), hardware_name=d.name,

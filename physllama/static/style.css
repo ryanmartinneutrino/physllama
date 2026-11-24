@@ -114,3 +114,14 @@
 .guide-note + .guide-note { margin-top: 12px; }
 .guide-note ul { margin: 6px 0; padding-left: 18px; }
 .guide-note li { margin-bottom: 4px; }
+.sampling-channels { color: #6d7a85; }
+#recording-note.warning { color: #945b32; }
+/* Highlight for samples shown in the hover box */
+.plot-area { position: relative; }
+.hover-marks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hover-mark { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--mark-color); box-shadow: 0 0 0 2.5px #fff, 0 0 0 4.5px var(--mark-color); }
+/* Experiment files */
+.file-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.saved-label { font-size: 10px; color: #3e6d8f; background: #eaf3fa; border-radius: 5px; padding: 5px 8px; margin: 8px 0; }
+.saved-device { border-style: dashed; }
+.saved-tag { font-size: 9px; font-weight: 500; color: #3e6d8f; }

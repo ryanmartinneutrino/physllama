@@ -93,7 +93,7 @@ def test_sensor_ranges_granularity_and_conflicts():
     sensor = lab.devices['demo-1'].sensors[0]
     sensor['minimum_ms'] = 20
     sensor['step_ms'] = 20
-    with pytest.raises(ValueError, match='requires'):
+    with pytest.raises(ValueError, match='can only be sampled every 20–10000 ms'):
         lab.configure({'demo-1': [1]}, 10)
     with pytest.raises(ValueError, match='multiples'):
         lab.configure({'demo-1': [1]}, 25)

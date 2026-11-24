@@ -82,6 +82,28 @@ test('complete experiment with multiple devices, graphs, zoom, export and reset'
   await expect.poll(() => plot.evaluate(el => el._fullLayout.xaxis.range[0])).toBeLessThan(.1);
   await plot.evaluate(el => window.Plotly.Fx.hover(el, [{curveNumber: 0, pointNumber: 2}]));
   await expect(page.locator('.hoverlayer').first()).toContainText('Force');
+  // Each sample shown in the hover box is ringed at its plotted position.
+  // (Programmatic Fx.hover doesn't emit plotly_hover, so use the mouse.)
+  await plot.scrollIntoViewIfNeeded();
+  const target = await plot.evaluate(el => {
+    const xa = el._fullLayout.xaxis, ya = el._fullLayout.yaxis, rect = el.getBoundingClientRect();
+    return [rect.left + xa._offset + xa.c2p(el.data[0].x[2]), rect.top + ya._offset + ya.c2p(el.data[0].y[2])];
+  });
+  await page.mouse.move(target[0], target[1]);
+  const marks = page.locator('.graph').first().locator('.hover-mark');
+  await expect.poll(() => marks.count()).toBeGreaterThan(0);
+  const distances = await plot.evaluate(el => [...el.parentElement.querySelectorAll('.hover-mark')].map(mark => {
+    const left = parseFloat(mark.style.left), top = parseFloat(mark.style.top);
+    let best = Infinity;
+    el.data.forEach(trace => {
+      const xa = el._fullLayout.xaxis, ya = el._fullLayout[trace.yaxis === 'y' ? 'yaxis' : `yaxis${trace.yaxis.slice(1)}`];
+      trace.x.forEach((x, i) => { best = Math.min(best, Math.hypot(left - xa._offset - xa.c2p(x), top - ya._offset - ya.c2p(trace.y[i]))); });
+    });
+    return best;
+  }));
+  expect(Math.max(...distances)).toBeLessThan(1);
+  await page.mouse.move(5, 5);
+  await expect(marks).toHaveCount(0);
   await page.setViewportSize({width: 1440, height: 1050});
   await page.screenshot({path: 'test-results/workspace-recorded.png', fullPage: true});
   const downloadPromise = page.waitForEvent('download');
@@ -460,4 +482,97 @@ test('recording includes compatible unplotted channels and explains exclusive al
   await expect(graph.locator(`[data-series="${device.id}/3"]`)).toBeDisabled();
   await page.locator('#start').click();
   await expect.poll(() => selections).toEqual({[device.id]: [2, 4]});
+});
+
+
+test('a slow unplotted channel does not limit a fast device; plotted channels do', async ({page}) => {
+  await page.request.post('/api/demo');
+  const state = await (await page.request.get('/api/state')).json();
+  state.recording = false; state.series = []; state.points = []; state.total_points = 0;
+  state.devices = [state.devices.find(d => d.connected)];
+  const device = state.devices[0];
+  device.sensors[0].minimum_ms = 50;  // Force: max 20 Hz; accelerations: max 100 Hz
+  device.period_ms = 10;
+  await page.route('**/api/state?*', route => route.fulfill({json: state}));
+  let selections;
+  await page.route('**/api/start', route => { selections = route.request().postDataJSON().selections; return route.fulfill({json: state}); });
+  await page.goto('/');
+  const card = page.locator(`[data-device="${device.id}"]`);
+  await expect(card.locator('.sampling-max')).toContainText('Max 100 Hz');
+  await expect(card.locator('.sampling-channels').first()).toContainText('Force up to 20 Hz');
+  await expect(page.locator('#recording-note')).toContainText('Not recorded at the current interval');
+  await expect(page.locator('#channels')).toHaveText('3');
+  const graph = page.locator('.graph').first();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${device.id}/2"]`).check();
+  await page.locator('#start').click();
+  await expect.poll(() => selections).toEqual({[device.id]: [2, 3, 4]});
+  // Plotting Force at 10 ms is impossible: the device shares one interval.
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${device.id}/1"]`).check();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#recording-note')).toContainText('Can’t start');
+  await expect(page.locator('#start')).toBeDisabled();
+  await expect(card.locator('.sampling-channels').last()).toContainText('Plotted channels limit this device to 20 Hz');
+  await expect(card.locator('.period-input')).toHaveAttribute('min', '50');
+  await page.request.post('/api/disconnect', {data: {device_id: device.id}});
+});
+
+test('an experiment saves to a file and reopens with its graphs, settings and data', async ({page}) => {
+  // Start from a clean session: earlier tests share this server.
+  for (const device of (await (await page.request.get('/api/state')).json()).devices.filter(d => d.connected)) {
+    await page.request.post('/api/disconnect', {data: {device_id: device.id}});
+  }
+  await page.request.post('/api/reset');
+  await page.goto('/');
+  await page.getByRole('button', {name: 'Add demo device'}).click();
+  await expect(page.locator('#device-count')).not.toHaveText('0');
+  const id = (await (await page.request.get('/api/state')).json()).devices.find(d => d.connected).id;
+  await page.getByRole('textbox', {name: 'Experiment name', exact: true}).fill('Pendulum');
+  await page.getByRole('textbox', {name: 'Experiment name', exact: true}).press('Tab');
+  const graph = page.locator('.graph').first();
+  await graph.locator('summary').click();
+  await graph.locator(`[data-series="${id}/2"]`).check();
+  await page.keyboard.press('Escape');
+  await page.locator(`[data-period-device="${id}"]`).fill('25');
+  await page.locator(`[data-period-device="${id}"]`).press('Enter');
+  await expect(page.locator(`[data-device="${id}"] .period-rate`)).toHaveText('= 40 Hz');
+  await page.getByRole('button', {name: 'Start collection', exact: true}).click();
+  await expect.poll(async () => Number((await page.locator('#samples').innerText()).replaceAll(',', ''))).toBeGreaterThan(20);
+  await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
+  await expect(page.locator('#status')).toHaveText('Collection stopped');
+  const samples = await page.locator('#samples').innerText();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', {name: 'Save experiment'}).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('Pendulum.physllama');
+  const file = test.info().outputPath('Pendulum.physllama');
+  await download.saveAs(file);
+
+  // Clear everything, then reopen the file.
+  await page.request.post('/api/disconnect', {data: {device_id: id}});
+  await page.request.post('/api/reset');
+  await page.request.post('/api/experiment', {data: {name: 'Something else'}});
+  await page.reload();
+  await expect(page.locator('#samples')).toHaveText('0');
+  await page.getByRole('button', {name: 'Open experiment'}).click();
+  await page.locator('#experiment-file').setInputFiles(file);
+  await expect(page.locator('#samples')).toHaveText(samples);
+  await expect(page.getByRole('textbox', {name: 'Experiment name', exact: true})).toHaveValue('Pendulum');
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator(`[data-period-device="${id}"]`)).toHaveValue('25');
+  await expect(page.locator('.graph').first().locator('.selection-count')).toHaveText('1 selected');
+  await expect.poll(() => page.locator('.plot').first().evaluate(el => el.data?.[0]?.x.length)).toBeGreaterThan(0);
+  // Continuing adds a second run after the saved one.
+  await page.getByRole('button', {name: 'Start collection', exact: true}).click();
+  await expect.poll(async () => (await (await page.request.get('/api/state')).json()).run).toBe(2);
+  await page.getByRole('button', {name: 'Stop collection', exact: true}).click();
+  // Opening over existing data asks first; invalid files are explained.
+  await page.getByRole('button', {name: 'Open experiment'}).click();
+  await expect(page.locator('#open-dialog')).toBeVisible();
+  await page.getByRole('button', {name: 'Cancel'}).click();
+  await page.locator('#experiment-file').setInputFiles({name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"hello": 1}')});
+  await expect(page.locator('#notice')).toContainText('not a PhysLlama experiment file');
+  await page.request.post('/api/disconnect', {data: {device_id: id}});
+  await page.request.post('/api/reset');
 });

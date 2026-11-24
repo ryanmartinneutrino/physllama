@@ -70,6 +70,15 @@ function availableChannels() {
         demo: device.demo, supported: sensor.supported, active: state.recording && device.selected.includes(sensor.number)});
     }
   }
+  // Devices from an opened experiment file keep their channels (and recorded
+  // data) on graphs until they reconnect with the same IDs.
+  for (const saved of state.saved_devices || []) {
+    for (const sensor of saved.sensors) {
+      const id = `${saved.id}/${sensor.number}`;
+      if (!result.has(id)) result.set(id, {id, device_id: saved.id, device: saved.name, name: sensor.name, unit: sensor.unit,
+        demo: saved.demo, supported: sensor.supported, active: false, saved: true});
+    }
+  }
   return [...result.values()];
 }
 function graphChannelOptions() {
@@ -77,16 +86,25 @@ function graphChannelOptions() {
     (!state.recording || s.active || state.series.some(recorded => recorded.id === s.id))}));
 }
 function colorFor(id) { return colors[Math.max(0, availableChannels().findIndex(s => s.id === id)) % colors.length]; }
-function recordingConfiguration() {
-  const plotted = new Set(graphs.flatMap(graph => graph.selected));
+// Whether a channel can be sampled at this interval (range and granularity).
+function acceptsInterval(sensor, period) {
+  if (!(period >= sensor.minimum_ms && period <= sensor.maximum_ms)) return false;
+  const step = sensor.step_ms;
+  return !(step > 0) || Math.abs(period / step - Math.round(period / step)) < 1e-5;
+}
+const plottedIds = () => new Set(graphs.flatMap(graph => graph.selected));
+function recordingConfiguration(periods = {}) {
+  const plotted = plottedIds();
   return Object.fromEntries(state.devices.filter(d => d.connected).map(device => {
     const sensors = device.sensors.filter(s => s.supported);
-    // Record unplotted channels too. Some devices expose mutually exclusive
-    // ranges; prefer plotted ranges, then add every compatible channel.
-    // Conflicting plotted choices are still rejected by backend validation.
+    const period = periods[device.id] ?? device.period_ms;
+    // All channels on a device share its interval. Plotted channels are always
+    // requested (the backend explains any that cannot keep up). Unplotted
+    // channels are added only if they accept the interval and don't conflict,
+    // so a slow unplotted channel never limits the device's rate.
     const chosen = sensors.filter(s => plotted.has(`${device.id}/${s.number}`));
     for (const sensor of sensors) {
-      if (!chosen.includes(sensor) && chosen.every(other =>
+      if (!chosen.includes(sensor) && acceptsInterval(sensor, period) && chosen.every(other =>
         !sensor.excluded_channels.includes(other.number) && !other.excluded_channels.includes(sensor.number))) {
         chosen.push(sensor);
       }
@@ -144,22 +162,34 @@ function renderControls() {
   const configuration = state.recording ? Object.fromEntries(connected.map(d => [d.id, d.selected])) : recordingConfiguration();
   const channels = state.recording ? connected.reduce((sum, d) => sum + d.selected.length, 0)
     : Object.values(configuration).reduce((sum, numbers) => sum + numbers.length, 0);
-  const omitted = connected.flatMap(d => d.sensors.filter(s => s.supported && !configuration[d.id].includes(s.number))
-    .map(s => `${d.name}: ${s.name}`));
-  $('#recording-note').textContent = omitted.length
-    ? `Recording all compatible channels. Alternative channels not recorded: ${omitted.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`
+  const plotted = plottedIds();
+  const tooSlow = [], alternatives = [], blocked = [];
+  for (const d of connected) {
+    for (const s of d.sensors.filter(s => s.supported)) {
+      const fits = acceptsInterval(s, d.period_ms);
+      if (!configuration[d.id].includes(s.number)) (fits ? alternatives : tooSlow).push(`${d.name}: ${s.name} (max ${formatHz(1000 / s.minimum_ms)})`);
+      else if (!state.recording && !fits && plotted.has(`${d.id}/${s.number}`)) blocked.push(`${d.name}: ${s.name} (max ${formatHz(1000 / s.minimum_ms)})`);
+    }
+  }
+  const notes = [];
+  if (blocked.length) notes.push(`Can’t start: ${blocked.join(', ')} ${blocked.length > 1 ? 'are' : 'is'} plotted but can’t be sampled at ${blocked.length > 1 ? 'their device’s' : 'its device’s'} interval. All channels on one device share its interval, so choose a longer interval or uncheck the channel.`);
+  if (tooSlow.length) notes.push(`Not recorded at the current interval: ${tooSlow.join(', ')}. Choose a longer interval on the device card to record ${tooSlow.length > 1 ? 'them' : 'it'}.`);
+  if (alternatives.length) notes.push(`Alternative channels not recorded: ${alternatives.join(', ')}. To use an alternative, select it on a graph while stopped and uncheck its conflicting range.`);
+  $('#recording-note').textContent = notes.length ? notes.join(' ')
     : 'All supported channels on connected devices are recorded. Graph selections only control what you plot and export from that graph.';
+  $('#recording-note').classList.toggle('warning', blocked.length > 0);
   $('#device-count').textContent = connected.length;
   $('#sampling-note').textContent = connected.length > 1
     ? 'Each device samples at its own interval, set on its card. Devices are not synchronized, so their sample times differ.'
     : connected.length ? 'Set the sampling interval on the device card.' : '';
   $('#sampling-note').hidden = !connected.length;
-  $('#start').disabled = busy || connecting() || offline || state.recording || !channels;
+  $('#start').disabled = busy || connecting() || offline || state.recording || !channels || blocked.length > 0;
   $('#stop').disabled = busy || connecting() || offline || !state.recording;
   $('#reset').disabled = busy || connecting() || offline || state.recording || !state.total_points;
   for (const id of ['scan', 'demo']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
   $('#save-device-name').disabled = busy || connecting() || offline || state.recording;
   $('#export').disabled = busy || connecting() || offline || !state.series.length;
+  for (const id of ['open-experiment', 'save-experiment']) $(`#${id}`).disabled = busy || connecting() || offline || state.recording;
   $('#end-group-button').disabled = busy || connecting() || offline;
   const options = new Map(graphChannelOptions().map(s => [s.id, s]));
   for (const graph of graphs) {
@@ -177,12 +207,22 @@ function renderControls() {
   $('#supported-devices').textContent = `Supported: ${(state.supported_devices || []).map(d => d.label).join(', ') || 'checking…'}`;
   $('#demo-banner').hidden = !state.devices.some(d => d.demo && d.connected) && !state.series.some(s => s.demo);
 }
-// Interval limits that every channel recorded on this device accepts.
-function intervalLimits(device, numbers) {
-  const sensors = device.sensors.filter(s => s.supported && (!numbers || numbers.includes(s.number)));
+// Interval limits for a device: the fastest any channel allows, the range the
+// plotted channels allow (they must all be recorded), and per-channel maxima.
+function intervalLimits(device) {
+  const sensors = device.sensors.filter(s => s.supported);
   if (!sensors.length) return null;
-  const steps = [...new Set(sensors.map(s => s.step_ms).filter(step => step > 0 && step !== 1))];
-  return {min: Math.max(...sensors.map(s => s.minimum_ms)), max: Math.min(...sensors.map(s => s.maximum_ms)), steps};
+  const plotted = plottedIds();
+  const required = sensors.filter(s => plotted.has(`${device.id}/${s.number}`));
+  const bounds = list => ({min: Math.max(...list.map(s => s.minimum_ms)), max: Math.min(...list.map(s => s.maximum_ms))});
+  const groups = new Map();
+  for (const s of sensors) groups.set(s.minimum_ms, [...(groups.get(s.minimum_ms) || []), s.name]);
+  return {
+    min: Math.min(...sensors.map(s => s.minimum_ms)), max: Math.max(...sensors.map(s => s.maximum_ms)),
+    required: required.length ? {...bounds(required), names: required.map(s => s.name)} : null,
+    groups: [...groups].sort((a, b) => a[0] - b[0]),
+    steps: [...new Set(sensors.map(s => s.step_ms).filter(step => step > 0 && step !== 1))],
+  };
 }
 const formatMs = ms => `${ms.toLocaleString(undefined, {maximumFractionDigits: 2})} ms`;
 const formatHz = hz => `${hz.toLocaleString(undefined, {maximumFractionDigits: hz < 10 ? 2 : 1})} Hz`;
@@ -196,17 +236,27 @@ function achievedRate(deviceId) {
   return best && {run: best.run, hz: (best.n - 1) / (best.last - best.first), n: best.n};
 }
 function samplingDetails(device, disabled) {
-  const numbers = state.recording ? device.selected : recordingConfiguration()[device.id];
-  const limits = intervalLimits(device, numbers);
+  const limits = intervalLimits(device);
   const period = device.period_ms;
-  const step = limits?.steps.length ? Math.max(...limits.steps) : null;
+  // The input allows what the plotted channels allow, or else any channel's range.
+  const allowed = limits?.required || limits;
   const control = `<div class="device-sampling-control">
       <label for="period-${esc(device.id)}">Interval</label>
       <div class="input-unit"><input id="period-${esc(device.id)}" class="period-input" type="number" data-period-device="${esc(device.id)}"
-        value="${period ?? ''}" min="${limits ? limits.min : 10}" max="${limits ? limits.max : 10000}" step="${step || 'any'}" ${disabled}><span>ms</span></div>
+        value="${period ?? ''}" min="${allowed ? allowed.min : 10}" max="${allowed ? allowed.max : 10000}" step="any" ${disabled}><span>ms</span></div>
       <span class="period-rate">${period ? `= ${formatHz(1000 / period)}` : ''}</span></div>`;
-  const maximum = limits ? `<p class="sampling-max"><strong>Max ${formatHz(1000 / limits.min)}</strong> (${formatMs(limits.min)})`
-    + ` · min ${formatHz(1000 / limits.max)} (${formatMs(limits.max)})${step ? ` · multiples of ${formatMs(step)}` : ''}</p>` : '';
+  let maximum = '';
+  if (limits) {
+    maximum = `<p class="sampling-max"><strong>Max ${formatHz(1000 / limits.min)}</strong> (${formatMs(limits.min)})`
+      + ` · min ${formatHz(1000 / limits.max)} (${formatMs(limits.max)})${limits.steps.length ? ` · multiples of ${limits.steps.map(formatMs).join(' or ')}` : ''}</p>`;
+    if (limits.groups.length > 1) {
+      maximum += `<p class="sampling-channels">Per channel: ${limits.groups.map(([ms, names]) => `${esc(names.join(', '))} up to ${formatHz(1000 / ms)}`).join('; ')}.`
+        + ' Channels slower than the interval are not recorded unless plotted.</p>';
+    }
+    if (limits.required && limits.required.min > limits.min) {
+      maximum += `<p class="sampling-channels">Plotted channels limit this device to <strong>${formatHz(1000 / limits.required.min)}</strong>. Uncheck the slower ones to sample faster.</p>`;
+    }
+  }
   let how = '';
   if (device.timing === 'polled') {
     const rate = achievedRate(device.id);
@@ -223,10 +273,11 @@ function renderDevices() {
   // Don't replace a period input while someone is typing in it.
   if (document.activeElement?.matches?.('#devices .period-input')) return;
   const rates = state.devices.filter(d => d.timing === 'polled').map(d => achievedRate(d.id)?.hz.toFixed(1));
-  const signature = JSON.stringify([state.devices, state.recording, busy, offline, connection, rates]);
+  const signature = JSON.stringify([state.devices, state.saved_devices, state.recording, busy, offline, connection, rates, [...plottedIds()]]);
   if (signature === deviceSignature) return;
   deviceSignature = signature;
-  $('#device-empty').hidden = state.devices.length > 0;
+  const saved = new Map((state.saved_devices || []).map(d => [d.id, d]));
+  $('#device-empty').hidden = state.devices.length > 0 || saved.size > 0;
   $('#devices').innerHTML = state.devices.map(d => {
     const inProgress = connecting() && connection.device_id === d.id;
     const disabled = busy || connecting() || offline || state.recording ? 'disabled' : '';
@@ -239,6 +290,7 @@ function renderDevices() {
         <div class="device-address">${d.demo ? 'Demo ID' : 'Bluetooth ID'}: <span>${esc(d.id)}</span></div>
         ${d.rssi != null ? `<div>Signal: ${d.rssi} dBm</div>` : ''}
       </div>
+      ${saved.has(d.id) && !d.connected ? `<p class="saved-label">From the opened experiment. Connect to restore its channels${saved.get(d.id).period_ms ? ` and ${formatMs(saved.get(d.id).period_ms)} interval` : ''}.</p>` : ''}
       ${d.reserved_by ? `<p class="reservation-label">${reservedElsewhere ? `In use by ${esc(d.reserved_by)}` : 'Reserved for your group'}</p>` : ''}
       <div class="device-actions">${d.connected ? '<span class="connection-label">Connected</span>' : '<span class="small disconnected">Not connected</span>'}<button class="text-button" data-device-action="${d.connected ? 'disconnect' : 'connect'}" ${disabled || (reservedElsewhere ? 'disabled' : '')}>${inProgress ? (connection.status === 'retrying' ? 'Retrying…' : 'Connecting…') : d.connected ? 'Disconnect' : reservedElsewhere ? 'In use' : 'Connect'}</button></div>
       ${d.owned && !d.connected ? `<button class="text-button" data-device-action="disconnect" ${disabled}>Release device</button>` : ''}
@@ -248,7 +300,16 @@ function renderDevices() {
       ${d.connected ? samplingDetails(d, disabled) : ''}
       ${d.connected && d.acquisition_note ? `<p class="device-warning">${esc(d.acquisition_note)}</p>` : ''}
     </article>`;
-  }).join('');
+  }).join('') + [...saved.values()].filter(d => !state.devices.some(device => device.id === d.id)).map(d => `<article class="device-card saved-device" data-saved-device="${esc(d.id)}">
+      <div class="device-head"><span class="device-icon" aria-hidden="true">ᛒ</span><h3>${esc(d.name)}</h3></div>
+      <div class="device-meta">${esc(d.family)}
+        <div class="hardware-name">Advertised name: ${esc(d.hardware_name)}</div>
+        ${d.serial ? `<div class="device-serial">Device ID: <strong>${esc(d.serial)}</strong></div>` : ''}
+        <div class="device-address">Bluetooth ID: <span>${esc(d.id)}</span></div>
+      </div>
+      <p class="saved-label">From the opened experiment · not connected</p>
+      <p class="small muted">Search for devices and connect this one to continue recording. Its channels${d.period_ms ? ` and ${formatMs(d.period_ms)} interval` : ''} are restored when it connects. Its recorded data is already on your graphs.</p>
+    </article>`).join('');
 }
 $('#devices').addEventListener('click', event => {
   const button = event.target.closest('[data-device-action]');
@@ -277,7 +338,7 @@ function addGraph(saved = {}) {
   const graph = {id: ++graphCounter, title: customTitle ? saved.title : `Graph ${graphs.length + 1}`, customTitle, selected: saved.selected || [],
     follow: saved.follow ?? true, fit: 0, dirty: true, lastRevision: -1, drawing: false};
   const node = document.createElement('article'); node.className = 'graph';
-  node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot"></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
+  node.innerHTML = `<div class="graph-header"><div class="graph-title"><input aria-label="Graph title" value="${esc(graph.title)}" maxlength="50"></div><div class="graph-tools"><label class="follow"><input type="checkbox" ${graph.follow ? 'checked' : ''}> Follow live</label><details class="graph-sensors"><summary>Sensors <span class="selection-count"></span><span aria-hidden="true">⌄</span></summary><div class="sensor-dropdown"><h3>Sensors to plot</h3><p>Check sensors from one or more devices to overlay on this graph.</p><div class="series-options"></div></div></details><button class="graph-export" title="Download all data for this graph, regardless of zoom" disabled>Download CSV</button><button class="fit" title="Fit all data">Fit view</button><button class="remove" title="Remove graph" aria-label="Remove graph">×</button></div></div><div class="plot-area"><div class="plot"></div><div class="hover-marks" aria-hidden="true"></div></div><div class="graph-footer"><div class="legend"></div><span class="plot-note">Time in seconds</span></div>`;
   graph.node = node;
   $('#graphs').append(node); graphs.push(graph);
   graph.resizeObserver = new ResizeObserver(() => {
@@ -309,7 +370,7 @@ function addGraph(saved = {}) {
     if (!id) return;
     graph.selected = e.target.checked ? [...graph.selected, id] : graph.selected.filter(s => s !== id);
     updateSelectionCount(graph);
-    graph.dirty = true; graph.fit++; drawGraph(graph); renderControls(); saveLayout();
+    graph.dirty = true; graph.fit++; drawGraph(graph); renderControls(); renderDevices(); saveLayout();
   });
   renderSeriesPicker(graph); drawGraph(graph);
   $('#graph-count').textContent = graphs.length;
@@ -342,7 +403,7 @@ function renderSeriesPicker(graph) {
     groups.get(channel.device_id).push(channel);
   }
   $('.series-options', graph.node).innerHTML = groups.size ? [...groups.values()].map(channels =>
-    `<fieldset><legend>${esc(channels[0].device)}</legend><p class="picker-device-id">Device: ${esc(state.devices.find(d => d.id === channels[0].device_id)?.serial || channels[0].device_id)}</p><div class="device-series">${channels.map(s =>
+    `<fieldset><legend>${esc(channels[0].device)}${channels[0].saved ? ' <small class="saved-tag">saved · not connected</small>' : ''}</legend><p class="picker-device-id">Device: ${esc([...state.devices, ...(state.saved_devices || [])].find(d => d.id === channels[0].device_id)?.serial || channels[0].device_id)}</p><div class="device-series">${channels.map(s =>
       `<label class="series-option${s.canPlot ? '' : ' unavailable'}"><input type="checkbox" data-series="${esc(s.id)}" ${graph.selected.includes(s.id) ? 'checked' : ''} ${s.canPlot && !busy && !offline ? '' : 'disabled'}><span>${esc(s.name)} <span class="muted">(${esc(s.unit)})</span>${s.canPlot ? '' : `<small>${s.supported === false ? 'Unsupported event channel' : 'Stop collection to add this sensor'}</small>`}</span></label>`
     ).join('')}</div></fieldset>`).join('') : '<p class="small muted">Connect a device to choose sensors for this graph.</p>';
   $('.sensor-dropdown > p', graph.node).textContent = state.recording
@@ -369,6 +430,24 @@ function displayPoints(data) {
   }
   result.push(data.at(-1));
   return result;
+}
+// Ring each sample shown in the hover box, positioned with Plotly's axis mapping.
+function placeHoverMarks(graph) {
+  const plot = $('.plot', graph.node), layer = $('.hover-marks', graph.node), layout = plot._fullLayout;
+  if (!layout || !graph.hovered?.length) { layer.replaceChildren(); return; }
+  const marks = [];
+  for (const point of graph.hovered) {
+    const xa = layout[point.xaxis], ya = layout[point.yaxis];
+    if (!xa || !ya || point.y == null) continue;
+    const x = xa.c2p(point.x), y = ya.c2p(point.y);
+    if (!(x >= 0 && x <= xa._length && y >= 0 && y <= ya._length)) continue;
+    const mark = document.createElement('i');
+    mark.className = 'hover-mark';
+    mark.style.left = `${xa._offset + x}px`; mark.style.top = `${ya._offset + y}px`;
+    mark.style.setProperty('--mark-color', point.color || '#1e5480');
+    marks.push(mark);
+  }
+  layer.replaceChildren(...marks);
 }
 async function drawGraph(graph) {
   if (graph.drawing || (!graph.dirty && graph.lastRevision === revision)) return;
@@ -409,17 +488,31 @@ async function drawGraph(graph) {
   try {
     await Plotly.react(plot, traces, layout, {responsive: true, displaylogo: false, scrollZoom: true,
       modeBarButtonsToRemove: ['select2d', 'lasso2d'], toImageButtonOptions: {filename: graph.title || 'physllama-graph'}});
+    if (!graphs.includes(graph)) return;
     if (!graph.listeners) {
       plot.on('plotly_relayout', event => {
         if ('xaxis.range[0]' in event || 'xaxis.range' in event) {
           graph.follow = false; $('.follow input', graph.node).checked = false; saveLayout();
         }
+        placeHoverMarks(graph);
       });
+      plot.on('plotly_hover', event => {
+        graph.hovered = event.points.map(point => ({x: point.x, y: point.y, xaxis: point.xaxis._name,
+          yaxis: point.yaxis._name, color: point.data.marker?.color}));
+        placeHoverMarks(graph);
+      });
+      plot.on('plotly_unhover', () => { graph.hovered = []; placeHoverMarks(graph); });
       graph.listeners = true;
     }
+    // Live redraws can move the axes or remove Plotly's hover label.
+    if (!plot.querySelector('.hoverlayer')?.childElementCount) graph.hovered = [];
+    placeHoverMarks(graph);
     $('.legend', graph.node).innerHTML = channels.length ? channels.map(s => `<span class="legend-item"><i class="swatch" style="background:${colorFor(s.id)}"></i>${esc(s.name)}${channels.filter(c => c.name === s.name).length > 1 ? ` (${esc(s.device)})` : ''} <span class="muted">${esc(s.unit)}</span></span>`).join('') : '<span>No channels selected</span>';
     $('.plot-note', graph.node).textContent = channels.some(s => (points.get(s.id)?.length || 0) > 4000) ? 'Showing the minimum and maximum sample in each time bucket · CSV contains every sample' : 'Each point is one recorded sample · hover to inspect';
-  } catch (error) { showNotice(`Graph could not be drawn: ${error.message}`); }
+  } catch (error) {
+    // A graph removed mid-draw (closed, or replaced by an opened experiment) is not an error.
+    if (graphs.includes(graph)) showNotice(`Graph could not be drawn: ${error.message}`);
+  }
   finally { graph.drawing = false; }
 }
 
@@ -436,13 +529,16 @@ $('#devices').addEventListener('change', async event => {
   if (!input) return;
   const value = Number(input.value);
   input.blur();
+  const id = input.dataset.periodDevice;
   if (!input.value || !(value >= Number(input.min) && value <= Number(input.max))) {
-    const device = state.devices.find(d => d.id === input.dataset.periodDevice);
-    showNotice(`${device?.name || 'This device'}: choose an interval from ${input.min} to ${input.max} ms (${formatHz(1000 / Number(input.min))} down to ${formatHz(1000 / Number(input.max))}).`);
+    const device = state.devices.find(d => d.id === id);
+    const required = device && intervalLimits(device)?.required;
+    showNotice(`${device?.name || 'This device'}: choose an interval from ${input.min} to ${input.max} ms (${formatHz(1000 / Number(input.min))} down to ${formatHz(1000 / Number(input.max))}).`
+      + (required ? ` The plotted channels (${required.names.join(', ')}) set this range; uncheck slower channels to sample faster.` : ''));
     deviceSignature = ''; renderDevices();
     return;
   }
-  await action('configure', {selections: recordingConfiguration(), periods: {[input.dataset.periodDevice]: value}});
+  await action('configure', {selections: recordingConfiguration({[id]: value}), periods: {[id]: value}});
   deviceSignature = ''; renderDevices();
 });
 $('#reset').addEventListener('click', () => $('#reset-dialog').showModal());
@@ -470,6 +566,51 @@ async function downloadCSV(selected, title) {
   } catch (error) { showNotice(error.message); }
 }
 $('#export').addEventListener('click', () => downloadCSV(null, $('#experiment-title').value));
+const graphLayout = () => graphs.map(({title, customTitle, selected, follow}) => ({title, customTitle, selected, follow}));
+function replaceGraphs(saved) {
+  for (const graph of graphs) {
+    graph.resizeObserver.disconnect();
+    Plotly.purge($('.plot', graph.node)); graph.node.remove();
+  }
+  graphs = []; graphCounter = 0;
+  // The layout comes from a file: keep only well-formed fields.
+  const valid = (Array.isArray(saved) ? saved : []).filter(g => g && typeof g === 'object').slice(0, 12).map(g => ({
+    title: typeof g.title === 'string' ? g.title.slice(0, 50) : '', customTitle: g.customTitle === true,
+    selected: Array.isArray(g.selected) ? [...new Set(g.selected.filter(id => typeof id === 'string'))] : [],
+    follow: g.follow !== false}));
+  (valid.length ? valid : [{}]).forEach(addGraph);
+  renumberGraphs(); saveLayout(); renderControls(); renderDevices();
+}
+function fileName(title, extension) {
+  return `${title.replace(/[^a-z0-9 _-]/gi, '').trim() || 'experiment'}${extension}`;
+}
+$('#save-experiment').addEventListener('click', async () => {
+  showNotice();
+  try {
+    const data = await request('experiment/file');
+    data.layout = {graphs: graphLayout()};
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data)], {type: 'application/json'}));
+    const anchor = document.createElement('a'); anchor.href = url;
+    anchor.download = fileName($('#experiment-title').value, '.physllama');
+    anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (error) { showNotice(error.message); }
+});
+$('#open-experiment').addEventListener('click', () => {
+  if (state.total_points || graphs.some(g => g.selected.length)) $('#open-dialog').showModal();
+  else $('#experiment-file').click();
+});
+$('[data-close="open-dialog"]').addEventListener('click', () => $('#open-dialog').close());
+$('#confirm-open').addEventListener('click', () => { $('#open-dialog').close(); $('#experiment-file').click(); });
+$('#experiment-file').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  let data;
+  try { data = JSON.parse(await file.text()); } catch {
+    return showNotice(`${file.name} is not a PhysLlama experiment file.`);
+  }
+  if (await action('experiment/file', data)) replaceGraphs(data?.layout?.graphs);
+});
 async function poll() {
   if (quitting) return;
   try {

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response as HTTPResponse
+from fastapi import Body, FastAPI, HTTPException, Query, Request, Response as HTTPResponse
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -212,6 +212,14 @@ def create_app(lab=None, on_shutdown=None, server_mode=False, multi_mode=False, 
     @app.post('/api/experiment')
     async def name_experiment(body: ExperimentRequest, request: Request):
         return await execute('name_experiment', request, **body.model_dump())
+
+    @app.get('/api/experiment/file')
+    async def save_experiment(request: Request):
+        return await execute('save_experiment', request)
+
+    @app.post('/api/experiment/file')
+    async def load_experiment(request: Request, data: dict = Body(...)):
+        return await execute('load_experiment', request, data=data)
 
     @app.post('/api/start')
     async def start(request: Request, body: Configuration | None = None):

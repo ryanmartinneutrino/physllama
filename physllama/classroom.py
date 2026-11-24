@@ -187,9 +187,9 @@ class Classroom:
                 for device_id in {*selections, *(kwargs.get('periods') or {})}:
                     self.require_owner(group, device_id)
                 await group.lab.call(action, **kwargs)
-            elif action == 'export_csv':
+            elif action in ('export_csv', 'save_experiment'):
                 return await group.lab.call(action, **kwargs)
-            elif action in ('stop', 'reset', 'add_demo', 'name_experiment'):
+            elif action in ('stop', 'reset', 'add_demo', 'name_experiment', 'load_experiment'):
                 await group.lab.call(action, **kwargs)
             else:
                 raise ValueError('Unknown classroom operation.')
